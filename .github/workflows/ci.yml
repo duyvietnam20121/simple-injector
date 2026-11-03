@@ -1,0 +1,76 @@
+name: Simple Injector - Windows Build and Tests
+
+"on":
+  push:
+    branches: [main, master]
+    paths:
+      - "**/*.cpp"
+      - "**/*.h"
+      - "CMakeLists.txt"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "**/*.cpp"
+      - "**/*.h"
+      - "CMakeLists.txt"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build x64 / Unit tests
+    runs-on: windows-2022
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        id: install-qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Configure CMake
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_PREFIX_PATH="${{ steps.install-qt.outputs.qt-root-dir }}"
+          -DBUILD_TESTING=ON
+
+      - name: Build application and tests
+        run: cmake --build build --config Release --parallel
+
+      - name: Run unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Prepare portable application folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "build/Release/SimpleInjector.exe" "package/SimpleInjector.exe"
+          windeployqt --release --no-translations --no-compiler-runtime --dir package "package/SimpleInjector.exe"
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "package/*" -DestinationPath "Simple-Injector-windows-x64.zip" -Force
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simple-Injector-windows-x64
+          path: Simple-Injector-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
