@@ -61,10 +61,10 @@ jobs:
           $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
           $testDir = "$PWD/build/Release"
 
-          # Ensure the Qt runtime and deployed plugins are visible to the test binary.
           $env:PATH = "$testDir;$qtBin;$env:PATH"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
+          $env:QML2_IMPORT_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/qml"
 
           & "$testDir/SimpleInjectorTests.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -75,15 +75,12 @@ jobs:
           $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
           $testDir = "$PWD/build/Release"
 
-          # Same Qt runtime setup for ctest to avoid DLL/plugin lookup failures
           $env:PATH = "$testDir;$qtBin;$env:PATH"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
+          $env:QML2_IMPORT_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/qml"
 
           ctest --test-dir build -C Release --output-on-failure --verbose
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_PLUGIN_PATH: ${{ steps.install-qt.outputs.qt-root-dir }}/plugins
 
       - name: Prepare portable application folder
         shell: pwsh
