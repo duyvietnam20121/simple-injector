@@ -563,7 +563,7 @@ private:
         int invalidValue = 0;
         int writeFailed = 0;
 
-        for (auto it = flags_.cbegin(); it != flags_.cend(); ++it) {
+        for (auto it = flags_.constBegin(); it != flags_.constEnd(); ++it) {
             const QString name = cleanPrefix(it.key());
             const auto offsetIt = offsets_.constFind(name);
             if (offsetIt == offsets_.cend()) {
@@ -681,7 +681,7 @@ private:
         const QString query = search_ ? search_->text().trimmed() : QString();
         table_->setUpdatesEnabled(false);
         table_->setRowCount(0);
-        for (auto it = flags_.cbegin(); it != flags_.cend(); ++it) {
+        for (auto it = flags_.constBegin(); it != flags_.constEnd(); ++it) {
             const QString name = it.key();
             const QString value = jsonValueToString(it.value());
             if (!query.isEmpty() && !name.contains(query, Qt::CaseInsensitive)
