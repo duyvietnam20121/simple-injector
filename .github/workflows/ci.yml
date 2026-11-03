@@ -50,13 +50,11 @@ jobs:
       - name: Build application and tests
         run: cmake --build build --config Release --parallel
 
-      - name: Run unit tests (direct, verbose diagnostics)
-        shell: pwsh
-        run: |
-          & "build/Release/SimpleInjectorTests.exe" -v2
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_PLUGIN_PATH: ${{ steps.install-qt.outputs.qt-root-dir }}/plugins
 
       - name: Run unit tests through CTest
         run: ctest --test-dir build -C Release --output-on-failure --verbose
