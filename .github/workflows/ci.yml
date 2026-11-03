@@ -60,10 +60,18 @@ jobs:
         run: |
           $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
           $testDir = "$PWD/build/Release"
+          
+          # Deploy Qt dependencies directly for the test executable
+          windeployqt --release --no-translations --no-compiler-runtime "$testDir/SimpleInjectorTests.exe"
+          
+          # Configure environment variables & PATH
           $env:PATH = "$testDir;$qtBin;$env:PATH"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
-          ctest --test-dir build -C Release --output-on-failure
+          
+          # Run test executable directly
+          & "$testDir/SimpleInjectorTests.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run unit tests through CTest
         run: ctest --test-dir build -C Release --output-on-failure --verbose
