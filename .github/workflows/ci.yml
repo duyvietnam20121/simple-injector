@@ -50,14 +50,20 @@ jobs:
       - name: Build application and tests
         run: cmake --build build --config Release --parallel
 
-      - name: Deploy Qt dependencies to test binary
-        run: windeployqt --release --no-translations --no-compiler-runtime "build/Release/SimpleInjectorTests.exe"
+      - name: Deploy Qt dependencies for unit tests
+        shell: pwsh
+        run: |
+          windeployqt --release --no-translations --no-compiler-runtime "build/Release/SimpleInjectorTests.exe"
 
       - name: Run unit tests
-        run: ctest --test-dir build -C Release --output-on-failure
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_PLUGIN_PATH: ${{ steps.install-qt.outputs.qt-root-dir }}/plugins
+        shell: pwsh
+        run: |
+          $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
+          $testDir = "$PWD/build/Release"
+          $env:PATH = "$testDir;$qtBin;$env:PATH"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
+          ctest --test-dir build -C Release --output-on-failure
 
       - name: Run unit tests through CTest
         run: ctest --test-dir build -C Release --output-on-failure --verbose
