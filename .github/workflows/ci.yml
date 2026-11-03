@@ -60,23 +60,30 @@ jobs:
         run: |
           $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
           $testDir = "$PWD/build/Release"
-          
-          # Deploy Qt dependencies directly for the test executable
-          windeployqt --release --no-translations --no-compiler-runtime "$testDir/SimpleInjectorTests.exe"
-          
-          # Configure environment variables & PATH
+
+          # Ensure the Qt runtime and deployed plugins are visible to the test binary.
           $env:PATH = "$testDir;$qtBin;$env:PATH"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
-          
-          # Run test executable directly
+
           & "$testDir/SimpleInjectorTests.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run unit tests through CTest
-        run: ctest --test-dir build -C Release --output-on-failure --verbose
+        shell: pwsh
+        run: |
+          $qtBin = "${{ steps.install-qt.outputs.qt-root-dir }}/bin"
+          $testDir = "$PWD/build/Release"
+
+          # Same Qt runtime setup for ctest to avoid DLL/plugin lookup failures
+          $env:PATH = "$testDir;$qtBin;$env:PATH"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_PLUGIN_PATH = "${{ steps.install-qt.outputs.qt-root-dir }}/plugins"
+
+          ctest --test-dir build -C Release --output-on-failure --verbose
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_PLUGIN_PATH: ${{ steps.install-qt.outputs.qt-root-dir }}/plugins
 
       - name: Prepare portable application folder
         shell: pwsh
