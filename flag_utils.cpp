@@ -13,6 +13,8 @@ namespace EzFlag {
 
 QString cleanPrefix(QString name)
 {
+    name = name.trimmed();
+
     // Longer prefixes must be checked before their shorter counterparts.
     static const QStringList prefixes = {
         QStringLiteral("DFString"), QStringLiteral("FString"),
