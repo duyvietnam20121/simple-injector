@@ -26,6 +26,8 @@ private slots:
         QTest::newRow("log") << QStringLiteral("FLogNetwork") << QStringLiteral("Network");
         QTest::newRow("unprefixed") << QStringLiteral("AlreadyClean") << QStringLiteral("AlreadyClean");
         QTest::newRow("trim") << QStringLiteral("  FFlagTrimmed  ") << QStringLiteral("Trimmed");
+        QTest::newRow("tab and newline whitespace")
+            << QStringLiteral("\tDFIntFrameLimit\n") << QStringLiteral("FrameLimit");
     }
 
     void cleanPrefix()
