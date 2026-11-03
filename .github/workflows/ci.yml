@@ -50,6 +50,9 @@ jobs:
       - name: Build application and tests
         run: cmake --build build --config Release --parallel
 
+      - name: Deploy Qt dependencies to test binary
+        run: windeployqt --release --no-translations --no-compiler-runtime "build/Release/SimpleInjectorTests.exe"
+
       - name: Run unit tests
         run: ctest --test-dir build -C Release --output-on-failure
         env:
