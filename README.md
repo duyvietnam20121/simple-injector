@@ -1,44 +1,44 @@
 # Simple Injector — C++20 / Qt 6
 
-A C++20 + Qt 6 Widgets desktop application ported from the supplied Python/PyQt6 project. The repository includes a reusable data utility module, automated unit tests, and a Windows GitHub Actions workflow.
+Ứng dụng desktop C++20 + Qt 6 Widgets để quản lý danh sách FastFlag và ghi các giá trị
+số nguyên/boolean vào `RobloxPlayerBeta.exe` đang chạy (Windows).
 
-## Features
+## Tính năng
 
-- Add flag entries from pasted JSON or import a `.json` file.
-- Search saved entries by name or value.
-- Remove selected rows, copy selected entries as JSON, and export all entries.
-- Persist flags and settings using atomic JSON writes.
-- Detect whether `RobloxPlayerBeta.exe` is running.
-- Fetch an offsets header asynchronously and cache parsed offsets locally.
-- Optional Auto Apply when the Roblox process is detected.
-- Report successful writes, missing offsets, unsupported values, and write failures separately.
+- Thêm flag từ JSON dán vào hoặc nhập từ file `.json` (báo số mục bị bỏ qua).
+- Tìm kiếm (có debounce), xóa mục chọn (nút hoặc phím `Delete`), sao chép `Ctrl+C`, xuất file.
+- Lưu flag và cài đặt bằng ghi nguyên tử (`QSaveFile`).
+- Phát hiện Roblox bằng handle tiến trình (không duyệt lại danh sách tiến trình khi đang kết nối).
+- Tải offsets bất đồng bộ, giới hạn kích thước phản hồi, cache cục bộ.
+- Tự động Apply đúng một lần mỗi khi gắn vào một tiến trình Roblox mới.
+- Báo cáo riêng: đã ghi / thiếu offset / giá trị không hỗ trợ / lỗi ghi.
 
-## Build and test with GitHub Actions
+## Cấu trúc mã nguồn
 
-The workflow is located at `.github/workflows/ci.yml`. It runs on pushes to `main` or `master`, pull requests, and manual dispatches. It:
+```
+src/
+  core/        Logic thuần Qt Core, kiểm thử được
+    flag_utils     Chuẩn hóa tên, ép kiểu giá trị, parse offsets, đọc/ghi JSON
+    flag_store     Kho flag: nạp, lưu, gộp, xóa, trích tập con
+    flag_applier   IMemoryWriter + applyFlags (tên -> offset -> ghi int32)
+    offsets_cache  Đọc/ghi cache offsets
+    app_storage    Thư mục dữ liệu + di trú từ thư mục "ez" cũ
+  platform/    Phần phụ thuộc Windows
+    roblox_process Tìm/mở tiến trình, ghi bộ nhớ (cài đặt IMemoryWriter)
+    process_monitor Theo dõi định kỳ, phát tín hiệu khi đổi trạng thái
+  services/
+    offsets_service Tải offsets + cache (mạng)
+  ui/          Widgets: main_window, add_flag_dialog, title_bar, style
+tests/         Test đơn vị (không cần Roblox, không đụng tiến trình khác)
+```
 
-1. Checks out the repository.
-2. Installs Qt 6.8.3 and uses the Visual Studio 2022 x64 toolchain.
-3. Configures and builds the app and unit tests with CMake.
-4. Runs CTest and fails the job if any test fails.
-5. Deploys the required Qt runtime DLLs with `windeployqt`.
-6. Uploads `Simple-Injector-windows-x64` as a GitHub Actions artifact.
+Quy tắc phụ thuộc: `ui` -> `services`/`platform`/`core`; `core` không biết gì về giao diện
+hay Windows. Việc ghi bộ nhớ đi qua `IMemoryWriter` nên test dùng writer giả.
 
-### Publish the project to GitHub
+## Build cục bộ (Windows)
 
-Upload the *contents* of this folder to the root of a GitHub repository (so that `CMakeLists.txt` and `.github/` are at the repository root), then push to `main` or `master`. Open the repository's **Actions** tab, select **Simple Injector - Windows Build and Tests**, and download the artifact from a successful run.
-
-The portable ZIP does not include the Microsoft Visual C++ runtime. Install the official Microsoft Visual C++ 2015–2022 Redistributable (x64) if Windows reports missing MSVC runtime DLLs.
-
-## Build locally (Windows)
-
-Requirements:
-
-- Visual Studio 2022 with the Desktop development with C++ workload.
-- CMake 3.21 or newer.
-- Qt 6.7 or newer with `Core`, `Widgets`, `Network`, and `Test` modules.
-
-From a Developer PowerShell / terminal with Qt available to CMake:
+Yêu cầu: Visual Studio 2022 (Desktop development with C++), CMake ≥ 3.21,
+Qt ≥ 6.7 với các module `Core`, `Widgets`, `Network`, `Test`.
 
 ```powershell
 cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.x.x/msvc2022_64" -DBUILD_TESTING=ON
@@ -46,33 +46,26 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-The executable is produced at `build/Release/SimpleInjector.exe`. Use a 64-bit Qt kit and a 64-bit compiler.
+File chạy: `build/Release/SimpleInjector.exe`. Có thể hạ yêu cầu Qt khi build thử bằng
+`-DSI_QT_MIN_VERSION=6.4` (mã đã được biên dịch và chạy test với Qt 6.4 trên Linux; phần
+Windows chỉ biên dịch được trên Windows).
 
-## Tests
+## CI
 
-The unit tests run without Roblox and do not access another process. They cover:
+`.github/workflows/ci.yml` chạy trên push/PR: cài Qt 6.8.3, build, chạy CTest, `windeployqt`,
+rồi tải thư mục `Simple-Injector-windows-x64` lên Artifacts. Bản portable không kèm Microsoft
+Visual C++ Redistributable (x64) — cài thêm nếu Windows báo thiếu DLL MSVC.
 
-- Prefix normalization (`FFlag`, `DFInt`, `FString`, and related forms).
-- JSON value conversion and unsupported JSON types.
-- Boolean, decimal, hexadecimal, and signed 32-bit integer parsing.
-- Parsing offsets from a C++ header-like text file.
-- Atomic JSON write/read behavior and invalid-file fallbacks.
+## Dữ liệu
 
-Process-memory behavior is not exercised by CI.
+Lưu tại `%LOCALAPPDATA%/SimpleInjector/`: `ffs.json` (flags), `settings.json`, `offsets.json`
+(cache). Lần đầu chạy, file khớp tên trong `%LOCALAPPDATA%/ez/` được sao sang nếu chưa có.
 
-## Data files
+## Giới hạn quan trọng
 
-The application stores its data under `%LOCALAPPDATA%/SimpleInjector/`:
-
-- `ffs.json` — saved entries.
-- `settings.json` — application settings.
-- `offsets.json` — cached offsets.
-
-On first launch, the app copies any matching data files from the earlier `%LOCALAPPDATA%/ez/` folder if the new files do not already exist.
-
-## Important limitations
-
-- The Windows process-memory feature uses the documented `WriteProcessMemory` API and supplied offsets. It does not bypass process permissions, Roblox protections, or anti-cheat controls.
-- The code assumes an offset identifies a writable 32-bit value relative to the process's main module base. A successful operating-system write does not prove that the offset is current or that the value has the intended meaning.
-- Only Boolean and signed 32-bit integer values are eligible for Apply. String-valued entries can be stored and exported, but their in-memory representation is not inferred.
-- Roblox can change its memory layout. Stale or incorrect offsets can cause instability or unexpected behavior. Use only offsets you are authorized to use and have independently validated.
+- Chỉ dùng `WriteProcessMemory` có tài liệu với quyền của chính người dùng; không vượt qua bảo vệ
+  tiến trình hay anti-cheat của Roblox.
+- Offset được hiểu là giá trị 32-bit ghi được, tính từ base của module chính. Ghi thành công ở
+  mức hệ điều hành không chứng minh offset còn đúng hay giá trị có ý nghĩa mong muốn.
+- Chỉ boolean và số nguyên 32-bit có dấu được Apply; flag kiểu chuỗi chỉ lưu/xuất.
+- Offset sai hoặc cũ có thể gây mất ổn định. Chỉ dùng offset bạn được phép dùng và đã tự kiểm chứng.
