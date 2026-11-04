@@ -4,6 +4,7 @@
 #include "core/flag_applier.h"
 #include "core/flag_table_model.h"
 #include "core/flag_utils.h"
+#include "core/window_sizing.h"
 #include "platform/process_monitor.h"
 #include "style.h"
 #include "title_bar.h"
@@ -13,6 +14,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
@@ -21,7 +23,9 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScreen>
 #include <QShortcut>
+#include <QSizeGrip>
 #include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QUrl>
@@ -39,6 +43,8 @@ constexpr int kOffsetsRefreshMs = 15 * 60 * 1000; // làm mới offsets mỗi 15
 constexpr int kSearchDebounceMs = 150;
 constexpr int kAutoApplyDelayMs = 250;
 const QString kAutoApplyKey = QStringLiteral("auto_apply");
+const QSize kPreferredSize(620, 720);
+const QSize kMinimumSize(520, 480);
 
 QString shortVersion(const QString &version)
 {
@@ -51,7 +57,12 @@ MainWindow::MainWindow()
     setWindowTitle(QStringLiteral("Simple Injector"));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(620, 780);
+
+    // Cỡ cửa sổ co theo màn hình (không cố định) và có tay nắm kéo ở góc phải dưới.
+    const QRect available = QGuiApplication::primaryScreen()->availableGeometry();
+    setMinimumSize(fitToScreen(kMinimumSize, available));
+    const QSize initial = fitToScreen(kPreferredSize, available);
+    setGeometry(centeredIn(initial, available));
 
     paths_ = prepareStorage();
     flags_.setPath(paths_.flags);
@@ -163,6 +174,7 @@ void MainWindow::buildUi()
     controls->addWidget(autoApplyCheck_, 0, Qt::AlignRight);
     controls->addWidget(applyButton_);
     bottom->addLayout(controls);
+    bottom->addWidget(new QSizeGrip(this), 0, Qt::AlignBottom | Qt::AlignRight);
     content->addLayout(bottom);
 }
 

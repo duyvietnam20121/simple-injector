@@ -31,6 +31,7 @@ set(SI_CORE_SOURCES
     src/core/flag_utils.cpp         src/core/flag_utils.h
     src/core/offsets_cache.cpp      src/core/offsets_cache.h
     src/core/roblox_version.cpp     src/core/roblox_version.h
+    src/core/window_sizing.h
     src/platform/process_monitor.cpp src/platform/process_monitor.h
     src/platform/process_probe.h
     src/platform/roblox_process.cpp src/platform/roblox_process.h
@@ -52,6 +53,7 @@ set(SI_TEST_SOURCES
     tests/test_flag_table_model.cpp
     tests/test_offsets_service.cpp
     tests/test_process_monitor.cpp
+    tests/test_window_sizing.cpp
 )
 
 # Kiểm tra trước để báo MỘT LẦN toàn bộ file bị thiếu (thay vì dừng ở lỗi đầu tiên).
