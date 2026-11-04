@@ -28,6 +28,9 @@ public:
     /// Gộp object JSON bên ngoài vào kho (ghi đè mục trùng tên).
     MergeResult merge(const QJsonObject &incoming);
 
+    /// Đặt giá trị cho một mục ĐÃ TỒN TẠI; false nếu tên không có trong kho.
+    bool setValue(const QString &name, const QString &value);
+
     /// Xóa các mục theo tên, trả về số mục thực sự bị xóa.
     int remove(const QStringList &names);
 

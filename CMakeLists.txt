@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SimpleInjector VERSION 1.1.0 LANGUAGES CXX)
+project(SimpleInjector VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,8 +27,11 @@ add_library(SimpleInjectorCore STATIC
     src/core/app_storage.cpp        src/core/app_storage.h
     src/core/flag_applier.cpp       src/core/flag_applier.h
     src/core/flag_store.cpp         src/core/flag_store.h
+    src/core/flag_table_model.cpp   src/core/flag_table_model.h
     src/core/flag_utils.cpp         src/core/flag_utils.h
     src/core/offsets_cache.cpp      src/core/offsets_cache.h
+    src/core/roblox_version.cpp     src/core/roblox_version.h
+    src/platform/process_probe.h
     src/platform/roblox_process.cpp src/platform/roblox_process.h
     src/platform/process_monitor.cpp src/platform/process_monitor.h
     src/services/offsets_service.cpp src/services/offsets_service.h
@@ -69,4 +72,8 @@ if(BUILD_TESTING)
     si_add_test(FlagStoreTests   tests/test_flag_store.cpp)
     si_add_test(FlagApplierTests tests/test_flag_applier.cpp)
     si_add_test(StorageTests     tests/test_storage.cpp)
+    si_add_test(RobloxVersionTests tests/test_roblox_version.cpp)
+    si_add_test(FlagTableModelTests tests/test_flag_table_model.cpp)
+    si_add_test(OffsetsServiceTests tests/test_offsets_service.cpp)
+    si_add_test(ProcessMonitorTests tests/test_process_monitor.cpp)
 endif()

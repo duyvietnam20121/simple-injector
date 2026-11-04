@@ -2,6 +2,8 @@
 
 #include "core/app_storage.h"
 #include "core/flag_store.h"
+#include "core/roblox_version.h"
+#include "platform/process_probe.h"
 #include "platform/roblox_process.h"
 #include "services/offsets_service.h"
 
@@ -14,11 +16,13 @@ class QCloseEvent;
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QTableWidget;
+class QSortFilterProxyModel;
+class QTableView;
 
 namespace SimpleInjector {
+class FlagTableModel;
 class ProcessMonitor;
-}
+} // namespace SimpleInjector
 
 namespace SimpleInjector::Ui {
 
@@ -40,32 +44,42 @@ private:
     void removeSelected();
     void exportFlags();
     void copySelected();
-    void applyAll();
+    /// `interactive` = false khi do Auto Apply gọi: không hiện hộp thoại, gặp lệch phiên bản thì dừng.
+    void applyAll(bool interactive);
 
     // Phản hồi từ service
-    void onProcessStatusChanged(const RobloxProcess::Status &status);
+    void onProcessStatusChanged(const ProcessStatus &status);
     void onOffsetsFinished(OffsetsService::Outcome outcome, const QString &detail);
+    void onValueEdited(const QString &name, const QString &value);
 
     // Hiển thị
-    void refreshTable();
+    void updateCount();
     void updateOffsetsLabel();
+    void updateVersionLabel();
     void updateControls();
     void setStatus(const QString &message, bool good);
     QStringList selectedNames() const;
+    VersionMatch currentVersionMatch() const;
+    bool saveFlags(const QString &successMessage);
     void saveSettings();
 
     StoragePaths paths_;
     FlagStore flags_;
     QJsonObject settings_;
+    RobloxProcess process_;
     OffsetsService *offsets_ = nullptr;
     ProcessMonitor *monitor_ = nullptr;
+    FlagTableModel *model_ = nullptr;
+    QSortFilterProxyModel *proxy_ = nullptr;
     QTimer searchDebounce_;
+    bool pendingAutoApply_ = false; ///< Auto Apply bị hoãn vì offsets lệch phiên bản, chờ bản mới.
 
     QLabel *statusLabel_ = nullptr;
     QLabel *offsetsLabel_ = nullptr;
+    QLabel *versionLabel_ = nullptr;
     QLabel *countLabel_ = nullptr;
     QLineEdit *search_ = nullptr;
-    QTableWidget *table_ = nullptr;
+    QTableView *table_ = nullptr;
     QCheckBox *autoApplyCheck_ = nullptr;
     QPushButton *addButton_ = nullptr;
     QPushButton *removeButton_ = nullptr;

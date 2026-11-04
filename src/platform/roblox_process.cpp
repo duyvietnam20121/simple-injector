@@ -1,5 +1,7 @@
 #include "roblox_process.h"
 
+#include "core/roblox_version.h"
+
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -69,6 +71,15 @@ quintptr findMainModuleBase(DWORD pid)
     return base;
 }
 
+QString imagePathOf(HANDLE process)
+{
+    wchar_t buffer[MAX_PATH * 4] = {};
+    DWORD size = static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0]));
+    if (!QueryFullProcessImageNameW(process, 0, buffer, &size))
+        return {};
+    return QString::fromWCharArray(buffer, static_cast<qsizetype>(size));
+}
+
 } // namespace
 #endif
 
@@ -86,41 +97,64 @@ void RobloxProcess::detach()
     handle_ = nullptr;
     pid_ = 0;
     imageBase_ = 0;
+    version_.clear();
 }
 
-RobloxProcess::Status RobloxProcess::refresh()
+ProcessStatus RobloxProcess::refresh()
 {
 #ifdef Q_OS_WIN
     // Đang gắn: handle báo "chưa tín hiệu" nghĩa là tiến trình còn sống,
     // không cần duyệt lại toàn bộ danh sách tiến trình mỗi lần.
     if (handle_) {
         if (WaitForSingleObject(static_cast<HANDLE>(handle_), 0) == WAIT_TIMEOUT)
-            return {State::Connected, pid_, imageBase_, 0};
+            return {ProcessState::Connected, pid_, imageBase_, 0, version_};
         detach();
     }
 
     const std::optional<DWORD> pid = findProcessId();
     if (!pid)
-        return {State::NotRunning, 0, 0, 0};
+        return {ProcessState::NotRunning, 0, 0, 0, QString()};
 
-    HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_WRITE
-                                    | PROCESS_VM_OPERATION | SYNCHRONIZE,
+    HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ
+                                    | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | SYNCHRONIZE,
                                 FALSE, *pid);
     if (!handle)
-        return {State::AccessDenied, *pid, 0, static_cast<quint32>(GetLastError())};
+        return {ProcessState::AccessDenied, *pid, 0, static_cast<quint32>(GetLastError()), QString()};
 
     const quintptr base = findMainModuleBase(*pid);
     if (base == 0) {
         CloseHandle(handle);
-        return {State::NoModuleBase, *pid, 0, 0};
+        return {ProcessState::NoModuleBase, *pid, 0, 0, QString()};
     }
 
     handle_ = handle;
     pid_ = *pid;
     imageBase_ = base;
-    return {State::Connected, pid_, imageBase_, 0};
+    version_ = versionFromImagePath(imagePathOf(handle));
+    return {ProcessState::Connected, pid_, imageBase_, 0, version_};
 #else
-    return {State::Unsupported, 0, 0, 0};
+    return {ProcessState::Unsupported, 0, 0, 0, QString()};
+#endif
+}
+
+bool RobloxProcess::readInt32(quintptr address, qint32 *out)
+{
+#ifdef Q_OS_WIN
+    if (!handle_ || !out)
+        return false;
+    qint32 value = 0;
+    SIZE_T bytesRead = 0;
+    const BOOL ok = ReadProcessMemory(static_cast<HANDLE>(handle_),
+                                      reinterpret_cast<LPCVOID>(address),
+                                      &value, sizeof(value), &bytesRead);
+    if (!ok || bytesRead != sizeof(value))
+        return false;
+    *out = value;
+    return true;
+#else
+    Q_UNUSED(address)
+    Q_UNUSED(out)
+    return false;
 #endif
 }
 

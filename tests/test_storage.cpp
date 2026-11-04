@@ -56,8 +56,39 @@ private slots:
 
         const OffsetMap expected{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Beta"), 0xABCDEF}};
         QString error;
-        QVERIFY2(saveOffsetsCache(path, expected, &error), qPrintable(error));
+        QVERIFY2(saveOffsetsCache(path, expected, QString(), &error), qPrintable(error));
         QCOMPARE(loadOffsetsCache(path), expected);
+    }
+
+    void offsetsCacheStoresVersionAlongsideOffsets()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString path = root.filePath(QStringLiteral("offsets.json"));
+
+        const OffsetMap expected{{QStringLiteral("Alpha"), 0x10}};
+        QString error;
+        QVERIFY2(saveOffsetsCache(path, expected, QStringLiteral("version-abc123"), &error),
+                 qPrintable(error));
+
+        QString version;
+        QCOMPARE(loadOffsetsCache(path, &version), expected); // __meta không lọt vào offsets
+        QCOMPARE(version, QStringLiteral("version-abc123"));
+    }
+
+    void offsetsCacheWithoutVersionGivesEmptyVersion()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString path = root.filePath(QStringLiteral("offsets.json"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("{\"Alpha\":\"10\"}"); // định dạng cũ, chưa có __meta
+        file.close();
+
+        QString version = QStringLiteral("stale");
+        QCOMPARE(loadOffsetsCache(path, &version).size(), 1);
+        QVERIFY(version.isEmpty());
     }
 
     void offsetsCacheSkipsCorruptEntries()

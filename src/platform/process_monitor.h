@@ -1,37 +1,39 @@
 #pragma once
 
-#include "roblox_process.h"
+#include "process_probe.h"
 
 #include <QObject>
 #include <QTimer>
 
 namespace SimpleInjector {
 
-/// Định kỳ kiểm tra Roblox và phát tín hiệu khi trạng thái thay đổi.
-/// Lớp này sở hữu RobloxProcess nên giao diện không phải chạm vào API Windows.
+/// Định kỳ hỏi IProcessProbe và phát tín hiệu khi trạng thái thay đổi.
+/// Không sở hữu probe (probe phải sống lâu hơn monitor), nên test dùng được probe giả.
 class ProcessMonitor final : public QObject {
     Q_OBJECT
 
 public:
-    explicit ProcessMonitor(int intervalMs = 1500, QObject *parent = nullptr);
+    ProcessMonitor(IProcessProbe *probe, int intervalMs = 1500, QObject *parent = nullptr);
 
+    /// Kiểm tra ngay một lần rồi bắt đầu hẹn giờ.
     void start();
+    void stop();
     void checkNow();
 
-    RobloxProcess &process() { return process_; }
-    const RobloxProcess::Status &status() const { return status_; }
-    bool isConnected() const { return status_.state == RobloxProcess::State::Connected; }
+    const ProcessStatus &status() const { return status_; }
+    bool isConnected() const { return status_.state == ProcessState::Connected; }
 
 signals:
-    /// Phát khi (và chỉ khi) trạng thái khác lần kiểm tra trước.
-    void statusChanged(const SimpleInjector::RobloxProcess::Status &status);
-    /// Phát đúng một lần mỗi khi vừa gắn vào một tiến trình Roblox mới.
+    /// Phát khi (và chỉ khi) trạng thái khác lần kiểm tra trước; lần kiểm tra đầu luôn phát.
+    void statusChanged(const SimpleInjector::ProcessStatus &status);
+    /// Phát đúng một lần mỗi khi vừa gắn vào một tiến trình mới
+    /// (kể cả khi đổi PID mà không qua trạng thái ngắt kết nối).
     void attached();
 
 private:
-    RobloxProcess process_;
+    IProcessProbe *probe_ = nullptr;
     QTimer timer_;
-    RobloxProcess::Status status_;
+    ProcessStatus status_;
     bool firstCheck_ = true;
 };
 

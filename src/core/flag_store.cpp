@@ -34,6 +34,14 @@ FlagStore::MergeResult FlagStore::merge(const QJsonObject &incoming)
     return result;
 }
 
+bool FlagStore::setValue(const QString &name, const QString &value)
+{
+    if (!entries_.contains(name))
+        return false;
+    entries_.insert(name, value);
+    return true;
+}
+
 int FlagStore::remove(const QStringList &names)
 {
     int removed = 0;

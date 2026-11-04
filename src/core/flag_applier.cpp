@@ -8,11 +8,14 @@ namespace SimpleInjector {
 
 QString ApplyReport::summary() const
 {
-    return QStringLiteral("Đã xong · %1 đã ghi · %2 thiếu offset · %3 giá trị không hỗ trợ · %4 lỗi ghi")
-        .arg(applied)
-        .arg(missingOffset)
-        .arg(invalidValue)
-        .arg(writeFailed);
+    QString text = QStringLiteral("Đã xong · %1 ghi và xác nhận").arg(applied);
+    if (verifyFailed > 0)
+        text += QStringLiteral(" · %1 ghi nhưng đọc lại không khớp (offset có thể đã cũ)").arg(verifyFailed);
+    text += QStringLiteral(" · %1 thiếu offset · %2 giá trị không hỗ trợ · %3 lỗi ghi")
+                .arg(missingOffset)
+                .arg(invalidValue)
+                .arg(writeFailed);
+    return text;
 }
 
 ApplyReport applyFlags(const QJsonObject &flags,
@@ -40,11 +43,18 @@ ApplyReport applyFlags(const QJsonObject &flags,
             ++report.writeFailed; // imageBase + offset sẽ tràn số
             continue;
         }
+        const quintptr address = imageBase + offset;
 
-        if (writer.writeInt32(imageBase + offset, value))
+        if (!writer.writeInt32(address, value)) {
+            ++report.writeFailed;
+            continue;
+        }
+
+        qint32 readBack = 0;
+        if (writer.readInt32(address, &readBack) && readBack == value)
             ++report.applied;
         else
-            ++report.writeFailed;
+            ++report.verifyFailed;
     }
     return report;
 }

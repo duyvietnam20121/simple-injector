@@ -34,13 +34,19 @@ QPushButton:hover { background-color: #302022; border-color: #713333; }
 QPushButton:disabled { color: #555; background-color: #151517; border-color: #222; }
 QPushButton#ApplyBtn { background-color: #351010; border-color: #6B2424; font-size: 12px; font-weight: bold; }
 QPushButton#ApplyBtn:hover { background-color: #501717; }
-QTableWidget { background-color: #080809; border: none; gridline-color: #1A1A1D; outline: none; color: #C9C9C9; selection-background-color: #351919; }
-QTableWidget::item { padding: 5px; }
+QTableView { background-color: #080809; border: none; gridline-color: #1A1A1D; outline: none; color: #C9C9C9; selection-background-color: #351919; }
+QTableView::item { padding: 5px; }
+QTableView QLineEdit { padding: 0 4px; border-radius: 0; }
 QHeaderView::section { background-color: #111113; color: #777; padding: 7px; border: none; font-weight: bold; font-size: 10px; }
 QScrollBar:vertical { border: none; background: #0F0F11; width: 7px; }
 QScrollBar::handle:vertical { background: #343438; min-height: 22px; border-radius: 3px; }
 QCheckBox { color: #AAA; font-size: 11px; spacing: 7px; }
 )");
+}
+
+inline QString versionStyle(const QString &color)
+{
+    return QStringLiteral("color:%1;font-size:10px;border:none;").arg(color);
 }
 
 inline QString statusStyle(bool good)

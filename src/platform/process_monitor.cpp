@@ -2,7 +2,8 @@
 
 namespace SimpleInjector {
 
-ProcessMonitor::ProcessMonitor(int intervalMs, QObject *parent) : QObject(parent)
+ProcessMonitor::ProcessMonitor(IProcessProbe *probe, int intervalMs, QObject *parent)
+    : QObject(parent), probe_(probe)
 {
     timer_.setInterval(intervalMs);
     connect(&timer_, &QTimer::timeout, this, &ProcessMonitor::checkNow);
@@ -14,9 +15,14 @@ void ProcessMonitor::start()
     timer_.start();
 }
 
+void ProcessMonitor::stop()
+{
+    timer_.stop();
+}
+
 void ProcessMonitor::checkNow()
 {
-    const RobloxProcess::Status next = process_.refresh();
+    const ProcessStatus next = probe_->refresh();
     if (!firstCheck_ && next == status_)
         return;
 

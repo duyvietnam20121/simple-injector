@@ -6,12 +6,17 @@ số nguyên/boolean vào `RobloxPlayerBeta.exe` đang chạy (Windows).
 ## Tính năng
 
 - Thêm flag từ JSON dán vào hoặc nhập từ file `.json` (báo số mục bị bỏ qua).
-- Tìm kiếm (có debounce), xóa mục chọn (nút hoặc phím `Delete`), sao chép `Ctrl+C`, xuất file.
+- Bảng `QAbstractTableModel` + `QSortFilterProxyModel`: sắp xếp theo cột, lọc theo tên/giá trị,
+  **sửa giá trị trực tiếp** (nhấp đúp hoặc `F2`), xóa bằng `Delete`, sao chép `Ctrl+C`, xuất file.
 - Lưu flag và cài đặt bằng ghi nguyên tử (`QSaveFile`).
+- **Đọc lại sau khi ghi** (`ReadProcessMemory`) để xác nhận giá trị thực sự đã đổi; báo riêng
+  các mục "ghi nhưng đọc lại không khớp" (dấu hiệu offset đã cũ).
+- **Đối chiếu phiên bản**: lấy `version-<hex>` của Roblox đang chạy (từ đường dẫn file chạy) và của
+  bảng offsets (từ `ClientVersion` trong header). Lệch phiên bản thì cảnh báo, hỏi xác nhận khi Apply
+  thủ công, và Auto Apply tự hoãn rồi tải offsets mới trước khi ghi.
+- **Làm mới offsets định kỳ** (15 phút), cộng thêm làm mới ngay khi gắn vào Roblox mà đang lệch phiên bản.
 - Phát hiện Roblox bằng handle tiến trình (không duyệt lại danh sách tiến trình khi đang kết nối).
-- Tải offsets bất đồng bộ, giới hạn kích thước phản hồi, cache cục bộ.
 - Tự động Apply đúng một lần mỗi khi gắn vào một tiến trình Roblox mới.
-- Báo cáo riêng: đã ghi / thiếu offset / giá trị không hỗ trợ / lỗi ghi.
 
 ## Cấu trúc mã nguồn
 
@@ -19,21 +24,28 @@ số nguyên/boolean vào `RobloxPlayerBeta.exe` đang chạy (Windows).
 src/
   core/        Logic thuần Qt Core, kiểm thử được
     flag_utils     Chuẩn hóa tên, ép kiểu giá trị, parse offsets, đọc/ghi JSON
-    flag_store     Kho flag: nạp, lưu, gộp, xóa, trích tập con
-    flag_applier   IMemoryWriter + applyFlags (tên -> offset -> ghi int32)
-    offsets_cache  Đọc/ghi cache offsets
+    flag_store     Kho flag: nạp, lưu, gộp, sửa, xóa, trích tập con
+    flag_table_model Mô hình bảng (Qt Core) cho giao diện, sửa được cột giá trị
+    flag_applier   IMemoryWriter + applyFlags (ghi int32 rồi đọc lại để xác nhận)
+    offsets_cache  Đọc/ghi cache offsets (kèm phiên bản trong khóa `__meta`)
+    roblox_version Phân tích phiên bản từ header/đường dẫn, so khớp
     app_storage    Thư mục dữ liệu + di trú từ thư mục "ez" cũ
   platform/    Phần phụ thuộc Windows
-    roblox_process Tìm/mở tiến trình, ghi bộ nhớ (cài đặt IMemoryWriter)
-    process_monitor Theo dõi định kỳ, phát tín hiệu khi đổi trạng thái
+    process_probe  IProcessProbe + ProcessStatus (để test bằng probe giả)
+    roblox_process Tìm/mở tiến trình, đọc/ghi bộ nhớ (IMemoryWriter + IProcessProbe)
+    process_monitor Theo dõi định kỳ, phát tín hiệu khi đổi trạng thái / vừa gắn
   services/
-    offsets_service Tải offsets + cache (mạng)
+    offsets_service Tải offsets (thủ công/định kỳ) + cache + phiên bản
   ui/          Widgets: main_window, add_flag_dialog, title_bar, style
 tests/         Test đơn vị (không cần Roblox, không đụng tiến trình khác)
+  test_offsets_service  Dùng QTcpServer cục bộ giả làm nguồn tải (200, 404, rỗng, quá lớn, treo, tự làm mới)
+  test_process_monitor  Dùng IProcessProbe giả (đổi trạng thái, gắn lại, đổi PID, hẹn giờ)
+  test_flag_table_model Gồm QAbstractItemModelTester, sửa giá trị, lọc/sắp xếp proxy, 5000 dòng
 ```
 
 Quy tắc phụ thuộc: `ui` -> `services`/`platform`/`core`; `core` không biết gì về giao diện
-hay Windows. Việc ghi bộ nhớ đi qua `IMemoryWriter` nên test dùng writer giả.
+hay Windows. Truy cập bộ nhớ đi qua `IMemoryWriter` và tiến trình đi qua `IProcessProbe`,
+nên test dùng đối tượng giả.
 
 ## Build cục bộ (Windows)
 
@@ -65,7 +77,10 @@ Lưu tại `%LOCALAPPDATA%/SimpleInjector/`: `ffs.json` (flags), `settings.json`
 
 - Chỉ dùng `WriteProcessMemory` có tài liệu với quyền của chính người dùng; không vượt qua bảo vệ
   tiến trình hay anti-cheat của Roblox.
-- Offset được hiểu là giá trị 32-bit ghi được, tính từ base của module chính. Ghi thành công ở
-  mức hệ điều hành không chứng minh offset còn đúng hay giá trị có ý nghĩa mong muốn.
+- Offset được hiểu là giá trị 32-bit ghi được, tính từ base của module chính. Đọc lại khớp giá trị
+  chỉ chứng minh ô nhớ đó nhận giá trị, không chứng minh đó đúng là flag mong muốn; ngược lại,
+  đọc lại không khớp cũng có thể do game tự ghi đè ngay sau đó.
+- Việc đối chiếu phiên bản dựa vào tên thư mục `version-<hex>` của file chạy và dòng `ClientVersion`
+  trong header offsets. Thiếu một trong hai thì kết quả là "chưa đối chiếu được" (không chặn).
 - Chỉ boolean và số nguyên 32-bit có dấu được Apply; flag kiểu chuỗi chỉ lưu/xuất.
 - Offset sai hoặc cũ có thể gây mất ổn định. Chỉ dùng offset bạn được phép dùng và đã tự kiểm chứng.
