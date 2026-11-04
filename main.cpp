@@ -53,7 +53,7 @@
 #endif
 
 namespace {
-constexpr auto kOffsetsUrl = "https://raw.githubusercontent.com/azayan165-svg/fflags.hpp/refs/heads/main/fflags.hpp";
+constexpr auto kOffsetsUrl = "https://raw.githubusercontent.com/duyvietnam20121/fflags-offset/refs/heads/main/FFlags.hpp";
 constexpr auto kProcessName = L"RobloxPlayerBeta.exe";
 constexpr int kMonitorIntervalMs = 1500;
 
