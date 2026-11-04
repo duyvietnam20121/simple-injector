@@ -9,24 +9,33 @@
 
 #include <limits>
 
-namespace EzFlag {
+namespace SimpleInjector {
 
 QString cleanPrefix(QString name)
 {
     name = name.trimmed();
 
+    // Tiền tố dài hơn phải đứng trước tiền tố là tiền tố con của nó
+    // (DFString trước FString, DFFlag trước FFlag, ...).
     static const QStringList prefixes = {
         QStringLiteral("DFString"), QStringLiteral("FString"),
-        QStringLiteral("DFInt"), QStringLiteral("FInt"),
-        QStringLiteral("DFFlag"), QStringLiteral("FFlag"),
-        QStringLiteral("FLog")
+        QStringLiteral("DFInt"),    QStringLiteral("FInt"),
+        QStringLiteral("DFFlag"),   QStringLiteral("SFFlag"),
+        QStringLiteral("FFlag"),    QStringLiteral("DFLog"),
+        QStringLiteral("FLog"),
     };
 
     for (const QString &prefix : prefixes) {
-        if (name.startsWith(prefix, Qt::CaseSensitive)) {
-            name.remove(0, prefix.size());
-            break;
-        }
+        if (!name.startsWith(prefix, Qt::CaseSensitive))
+            continue;
+
+        // "FIntensity" không phải flag có tiền tố "FInt": ký tự kế tiếp là chữ thường.
+        const QChar next = name.size() > prefix.size() ? name.at(prefix.size()) : QChar();
+        if (next.isLower())
+            continue;
+
+        name.remove(0, prefix.size());
+        break;
     }
     return name.trimmed();
 }
@@ -98,6 +107,27 @@ QHash<QString, quintptr> parseOffsetsHeader(const QString &source)
     return parsed;
 }
 
+QJsonObject parseJsonObject(const QString &text, QString *error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(text.toUtf8(), &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        if (error) {
+            *error = QStringLiteral("Lỗi JSON tại vị trí %1: %2")
+                         .arg(parseError.offset)
+                         .arg(parseError.errorString());
+        }
+        return {};
+    }
+    if (!document.isObject()) {
+        if (error)
+            *error = QStringLiteral("Gốc JSON phải là object: { \"TênFlag\": giá_trị }");
+        return {};
+    }
+    return document.object();
+}
+
 bool writeJsonAtomically(const QString &path, const QJsonObject &object, QString *error)
 {
     QSaveFile file(path);
@@ -136,4 +166,4 @@ QJsonObject readJsonObject(const QString &path, const QJsonObject &fallback)
     return document.object();
 }
 
-} // namespace EzFlag
+} // namespace SimpleInjector

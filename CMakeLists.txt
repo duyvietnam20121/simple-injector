@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SimpleInjector VERSION 1.0.0 LANGUAGES CXX)
+project(SimpleInjector VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,54 +7,66 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)
 
-find_package(Qt6 6.7 REQUIRED COMPONENTS Core Widgets Network)
+# Phiên bản Qt tối thiểu; có thể hạ khi build thử: -DSI_QT_MIN_VERSION=6.4
+set(SI_QT_MIN_VERSION 6.7 CACHE STRING "Minimum Qt 6 version")
+
+find_package(Qt6 ${SI_QT_MIN_VERSION} REQUIRED COMPONENTS Core Widgets Network)
 qt_standard_project_setup()
 
-add_library(SimpleInjectorCore STATIC
-    flag_utils.cpp
-    flag_utils.h
-)
-target_link_libraries(SimpleInjectorCore PUBLIC Qt6::Core)
-target_include_directories(SimpleInjectorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# Hàm tiện ích: bật cảnh báo chặt cho mọi target của dự án.
+function(si_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
 
+# ---- Thư viện lõi (không có giao diện, kiểm thử được) -----------------------
+add_library(SimpleInjectorCore STATIC
+    src/core/app_storage.cpp        src/core/app_storage.h
+    src/core/flag_applier.cpp       src/core/flag_applier.h
+    src/core/flag_store.cpp         src/core/flag_store.h
+    src/core/flag_utils.cpp         src/core/flag_utils.h
+    src/core/offsets_cache.cpp      src/core/offsets_cache.h
+    src/platform/roblox_process.cpp src/platform/roblox_process.h
+    src/platform/process_monitor.cpp src/platform/process_monitor.h
+    src/services/offsets_service.cpp src/services/offsets_service.h
+)
+target_link_libraries(SimpleInjectorCore PUBLIC Qt6::Core Qt6::Network)
+target_include_directories(SimpleInjectorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+si_enable_warnings(SimpleInjectorCore)
+
+# ---- Ứng dụng ---------------------------------------------------------------
 qt_add_executable(SimpleInjector
-    main.cpp
+    WIN32
+    src/main.cpp
+    src/ui/add_flag_dialog.cpp src/ui/add_flag_dialog.h
+    src/ui/main_window.cpp     src/ui/main_window.h
+    src/ui/style.h
+    src/ui/title_bar.cpp       src/ui/title_bar.h
 )
-target_link_libraries(SimpleInjector PRIVATE
-    SimpleInjectorCore
-    Qt6::Widgets
-    Qt6::Network
-)
+target_link_libraries(SimpleInjector PRIVATE SimpleInjectorCore Qt6::Widgets)
+si_enable_warnings(SimpleInjector)
 
 if(WIN32)
     target_compile_definitions(SimpleInjector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(SimpleInjectorCore PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
-if(MSVC)
-    target_compile_options(SimpleInjectorCore PRIVATE /W4 /permissive-)
-    target_compile_options(SimpleInjector PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(SimpleInjectorCore PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(SimpleInjector PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
+# ---- Kiểm thử ---------------------------------------------------------------
 if(BUILD_TESTING)
-    find_package(Qt6 6.7 REQUIRED COMPONENTS Test)
+    find_package(Qt6 ${SI_QT_MIN_VERSION} REQUIRED COMPONENTS Test)
 
-    qt_add_executable(SimpleInjectorTests
-        tests/test_flag_utils.cpp
-    )
-    target_link_libraries(SimpleInjectorTests PRIVATE
-        SimpleInjectorCore
-        Qt6::Test
-        Qt6::Core
-    )
+    function(si_add_test name source)
+        qt_add_executable(${name} ${source})
+        target_link_libraries(${name} PRIVATE SimpleInjectorCore Qt6::Test)
+        si_enable_warnings(${name})
+        add_test(NAME ${name} COMMAND ${name})
+    endfunction()
 
-    if(MSVC)
-        target_compile_options(SimpleInjectorTests PRIVATE /W4 /permissive-)
-    else()
-        target_compile_options(SimpleInjectorTests PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
-
-    add_test(NAME SimpleInjector.UnitTests COMMAND SimpleInjectorTests)
+    si_add_test(FlagUtilsTests   tests/test_flag_utils.cpp)
+    si_add_test(FlagStoreTests   tests/test_flag_store.cpp)
+    si_add_test(FlagApplierTests tests/test_flag_applier.cpp)
+    si_add_test(StorageTests     tests/test_storage.cpp)
 endif()

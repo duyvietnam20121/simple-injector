@@ -1,4 +1,4 @@
-#include "flag_utils.h"
+#include "core/flag_utils.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -24,6 +24,12 @@ private slots:
         QTest::newRow("string") << QStringLiteral("FStringText") << QStringLiteral("Text");
         QTest::newRow("dynamic string") << QStringLiteral("DFStringText") << QStringLiteral("Text");
         QTest::newRow("log") << QStringLiteral("FLogNetwork") << QStringLiteral("Network");
+        QTest::newRow("dynamic log") << QStringLiteral("DFLogNetwork") << QStringLiteral("Network");
+        QTest::newRow("synchronized flag") << QStringLiteral("SFFlagExample") << QStringLiteral("Example");
+        QTest::newRow("lowercase after prefix is kept") << QStringLiteral("FIntensity") << QStringLiteral("FIntensity");
+        QTest::newRow("digit after prefix") << QStringLiteral("FInt2Value") << QStringLiteral("2Value");
+        QTest::newRow("only prefix") << QStringLiteral("FFlag") << QString();
+        QTest::newRow("only one prefix removed") << QStringLiteral("FFlagFIntX") << QStringLiteral("FIntX");
         QTest::newRow("unprefixed") << QStringLiteral("AlreadyClean") << QStringLiteral("AlreadyClean");
         QTest::newRow("trim") << QStringLiteral("  FFlagTrimmed  ") << QStringLiteral("Trimmed");
         QTest::newRow("tab and newline whitespace")
@@ -34,7 +40,7 @@ private slots:
     {
         QFETCH(QString, input);
         QFETCH(QString, expected);
-        QCOMPARE(EzFlag::cleanPrefix(input), expected);
+        QCOMPARE(SimpleInjector::cleanPrefix(input), expected);
     }
 
     void jsonValueToString_data()
@@ -64,7 +70,7 @@ private slots:
         QFETCH(bool, valid);
 
         bool ok = false;
-        QCOMPARE(EzFlag::jsonValueToString(input, &ok), expected);
+        QCOMPARE(SimpleInjector::jsonValueToString(input, &ok), expected);
         QCOMPARE(ok, valid);
     }
 
@@ -93,7 +99,7 @@ private slots:
         QFETCH(qint32, expected);
 
         qint32 actual = 987;
-        const bool parsed = EzFlag::parseInt32Value(input, &actual);
+        const bool parsed = SimpleInjector::parseInt32Value(input, &actual);
         QCOMPARE(parsed, valid);
         if (valid)
             QCOMPARE(actual, expected);
@@ -101,7 +107,7 @@ private slots:
 
     void parseInt32ValueRejectsNullOutput()
     {
-        QVERIFY(!EzFlag::parseInt32Value(QStringLiteral("1"), nullptr));
+        QVERIFY(!SimpleInjector::parseInt32Value(QStringLiteral("1"), nullptr));
     }
 
     void parseOffsetsHeader()
@@ -113,12 +119,37 @@ private slots:
             "inline constexpr uintptr_t FFlagZero = 0x0;\n"
             "inline constexpr uintptr_t FFlagInvalid = 0xGG;\n");
 
-        const auto offsets = EzFlag::parseOffsetsHeader(source);
+        const auto offsets = SimpleInjector::parseOffsetsHeader(source);
         QCOMPARE(offsets.size(), 3);
         QCOMPARE(offsets.value(QStringLiteral("Alpha")), quintptr(0x10));
         QCOMPARE(offsets.value(QStringLiteral("Beta")), quintptr(0x2A));
         QCOMPARE(offsets.value(QStringLiteral("Pointer")), quintptr(0x100));
         QVERIFY(!offsets.contains(QStringLiteral("Zero")));
+    }
+
+    void parseJsonObjectAcceptsObject()
+    {
+        QString error;
+        const QJsonObject object = SimpleInjector::parseJsonObject(QStringLiteral("{\"a\": 1}"), &error);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(object.value(QStringLiteral("a")).toInt(), 1);
+    }
+
+    void parseJsonObjectRejectsBadInput_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::newRow("syntax error") << QStringLiteral("{oops");
+        QTest::newRow("array root") << QStringLiteral("[1, 2]");
+        QTest::newRow("scalar root") << QStringLiteral("42");
+        QTest::newRow("empty") << QString();
+    }
+
+    void parseJsonObjectRejectsBadInput()
+    {
+        QFETCH(QString, text);
+        QString error;
+        QVERIFY(SimpleInjector::parseJsonObject(text, &error).isEmpty());
+        QVERIFY(!error.isEmpty());
     }
 
     void jsonRoundTripUsesAtomicWrite()
@@ -133,8 +164,8 @@ private slots:
         expected.insert(QStringLiteral("TextValue"), QStringLiteral("hello"));
 
         QString error;
-        QVERIFY2(EzFlag::writeJsonAtomically(path, expected, &error), qPrintable(error));
-        QCOMPARE(EzFlag::readJsonObject(path), expected);
+        QVERIFY2(SimpleInjector::writeJsonAtomically(path, expected, &error), qPrintable(error));
+        QCOMPARE(SimpleInjector::readJsonObject(path), expected);
     }
 
     void readJsonReturnsFallbackForInvalidDocument()
@@ -150,7 +181,7 @@ private slots:
 
         QJsonObject fallback;
         fallback.insert(QStringLiteral("fallback"), true);
-        QCOMPARE(EzFlag::readJsonObject(path, fallback), fallback);
+        QCOMPARE(SimpleInjector::readJsonObject(path, fallback), fallback);
     }
 
     void writeJsonFailsForMissingDirectory()
@@ -160,7 +191,7 @@ private slots:
 
         QString error;
         const QString path = directory.filePath(QStringLiteral("missing/flags.json"));
-        QVERIFY(!EzFlag::writeJsonAtomically(path, {}, &error));
+        QVERIFY(!SimpleInjector::writeJsonAtomically(path, {}, &error));
         QVERIFY(!error.isEmpty());
     }
 };
