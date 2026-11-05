@@ -44,7 +44,7 @@ private slots:
         FlagTableModel model(&store);
 
         QCOMPARE(model.rowCount(), 3);
-        QCOMPARE(model.columnCount(), 2);
+        QCOMPARE(model.columnCount(), 3);
         QCOMPARE(model.nameAt(0), QStringLiteral("Alpha"));
         QCOMPARE(model.index(0, FlagTableModel::ValueColumn).data().toString(), QStringLiteral("true"));
         QCOMPARE(model.nameAt(99), QString());
@@ -103,18 +103,6 @@ private slots:
         QCOMPARE(edited.count(), 0);
     }
 
-    void tooltipSaysWhetherValueCanBeApplied()
-    {
-        FlagStore store;
-        store.merge(sampleFlags());
-        FlagTableModel model(&store);
-
-        const QString applicable = model.index(0, FlagTableModel::ValueColumn).data(Qt::ToolTipRole).toString();
-        const QString storedOnly = model.index(1, FlagTableModel::ValueColumn).data(Qt::ToolTipRole).toString(); // Mid
-        QVERIFY(applicable.contains(QStringLiteral("Có thể Apply")));
-        QVERIFY(storedOnly.contains(QStringLiteral("Chỉ lưu")));
-    }
-
     void reloadReflectsExternalStoreChanges()
     {
         FlagStore store;
@@ -130,6 +118,168 @@ private slots:
         QCOMPARE(resets.count(), 1);
         QCOMPARE(model.rowCount(), 4);
         QCOMPARE(model.nameAt(1), QStringLiteral("Beta"));
+    }
+
+    // ---- Cột trạng thái ------------------------------------------------------
+
+    void statusIsUnknownWithoutOffsets()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        FlagTableModel model(&store);
+
+        for (int row = 0; row < model.rowCount(); ++row)
+            QCOMPARE(model.statusAt(row), FlagStatus::Unknown);
+        QCOMPARE(model.problemCount(), 0);
+    }
+
+    void statusIsPredictedFromOffsets()
+    {
+        FlagStore store;
+        store.merge(sampleFlags()); // Alpha=true, Mid="some text", Zeta=1
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Mid"), 0x20}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+
+        QCOMPARE(model.statusAt(0), FlagStatus::Ready);         // Alpha: có offset, giá trị hợp lệ
+        QCOMPARE(model.statusAt(1), FlagStatus::InvalidValue);  // Mid: có offset nhưng là chuỗi
+        QCOMPARE(model.statusAt(2), FlagStatus::MissingOffset); // Zeta: không có offset
+        QCOMPARE(model.problemCount(), 2);
+
+        const QModelIndex zetaStatus = model.index(2, FlagTableModel::StatusColumn);
+        QVERIFY(zetaStatus.data(Qt::DisplayRole).toString().contains(QStringLiteral("Không có offset")));
+        QVERIFY(zetaStatus.data(Qt::ToolTipRole).toString().contains(QStringLiteral("Zeta")));
+    }
+
+    void refreshStatusesFollowsOffsetsContent()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        OffsetMap offsets;
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+        QCOMPARE(model.statusAt(0), FlagStatus::Unknown);
+
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        offsets.insert(QStringLiteral("Alpha"), 0x10); // bảng offsets đổi bên ngoài
+        model.refreshStatuses();
+
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.at(0).at(0).value<QModelIndex>().column(), int(FlagTableModel::StatusColumn));
+        QCOMPARE(model.statusAt(0), FlagStatus::Ready);
+        QCOMPARE(model.statusAt(1), FlagStatus::MissingOffset);
+    }
+
+    void applyResultsOverridePredictionAndClear()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+
+        QHash<QString, FlagResult> results;
+        results.insert(QStringLiteral("Alpha"), {FlagStatus::VerifyFailed, QStringLiteral("đọc lại ra 0")});
+        model.setApplyResults(results);
+
+        QCOMPARE(model.statusAt(0), FlagStatus::VerifyFailed);
+        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data(Qt::ToolTipRole).toString(),
+                 QStringLiteral("đọc lại ra 0"));
+
+        model.clearApplyResults();
+        QCOMPARE(model.statusAt(0), FlagStatus::Ready); // quay về dự đoán
+    }
+
+    void editingValueDiscardsThatFlagsApplyResult()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Zeta"), 0x20}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+
+        QHash<QString, FlagResult> results;
+        results.insert(QStringLiteral("Alpha"), {FlagStatus::Applied, QStringLiteral("ok")});
+        results.insert(QStringLiteral("Zeta"), {FlagStatus::Applied, QStringLiteral("ok")});
+        model.setApplyResults(results);
+
+        QVERIFY(model.setData(model.index(0, FlagTableModel::ValueColumn), QStringLiteral("false"))); // Alpha
+
+        QCOMPARE(model.statusAt(0), FlagStatus::Ready);   // Alpha đổi giá trị -> chưa Apply lại
+        QCOMPARE(model.statusAt(2), FlagStatus::Applied); // Zeta không bị ảnh hưởng
+    }
+
+    void reloadKeepsResultsOnlyForSurvivingFlags()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Zeta"), 0x20}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+
+        QHash<QString, FlagResult> results;
+        results.insert(QStringLiteral("Alpha"), {FlagStatus::Applied, QStringLiteral("ok")});
+        results.insert(QStringLiteral("Zeta"), {FlagStatus::Applied, QStringLiteral("ok")});
+        model.setApplyResults(results);
+
+        store.remove({QStringLiteral("Zeta")});
+        model.reload();
+        QJsonObject again;
+        again.insert(QStringLiteral("Zeta"), 1); // thêm lại: không được "thừa hưởng" kết quả cũ
+        store.merge(again);
+        model.reload();
+
+        QCOMPARE(model.statusAt(0), FlagStatus::Applied); // Alpha vẫn giữ
+        QCOMPARE(model.statusAt(2), FlagStatus::Ready);   // Zeta bắt đầu lại từ dự đoán
+    }
+
+    void proxyProblemsOnlyAndStatusSort()
+    {
+        FlagStore store;
+        store.merge(sampleFlags()); // Alpha=true, Mid=text, Zeta=1
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Mid"), 0x20}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+        FlagFilterProxyModel proxy;
+        proxy.setSourceModel(&model);
+
+        QCOMPARE(proxy.rowCount(), 3);
+
+        proxy.setProblemsOnly(true);
+        QCOMPARE(proxy.rowCount(), 2); // Mid (giá trị) + Zeta (offset); Alpha sẵn sàng bị ẩn
+
+        // Kết hợp với lọc văn bản: gõ "offset" chỉ còn flag thiếu offset.
+        proxy.setFilterFixedString(QStringLiteral("offset"));
+        QCOMPARE(proxy.rowCount(), 1);
+        QCOMPARE(proxy.index(0, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Zeta"));
+
+        proxy.setFilterFixedString(QString());
+        proxy.setProblemsOnly(false);
+        proxy.sort(FlagTableModel::StatusColumn, Qt::AscendingOrder);
+        // Vấn đề lên trước: MissingOffset (Zeta), InvalidValue (Mid), rồi Ready (Alpha).
+        QCOMPARE(proxy.index(0, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Zeta"));
+        QCOMPARE(proxy.index(1, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Mid"));
+        QCOMPARE(proxy.index(2, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Alpha"));
+    }
+
+    void proxyReactsWhenApplyResultsChange()
+    {
+        FlagStore store;
+        store.merge(sampleFlags());
+        OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Mid"), 0x20},
+                          {QStringLiteral("Zeta"), 0x30}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+        FlagFilterProxyModel proxy;
+        proxy.setSourceModel(&model);
+        proxy.setProblemsOnly(true);
+        QCOMPARE(proxy.rowCount(), 1); // chỉ Mid (chuỗi)
+
+        QHash<QString, FlagResult> results;
+        results.insert(QStringLiteral("Zeta"), {FlagStatus::WriteFailed, QStringLiteral("x")});
+        model.setApplyResults(results);
+
+        QCOMPARE(proxy.rowCount(), 2); // Zeta lỗi ghi xuất hiện trong danh sách "vấn đề"
     }
 
     void proxyFiltersNamesAndValuesCaseInsensitively()

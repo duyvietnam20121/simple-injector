@@ -26,7 +26,6 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QSizeGrip>
-#include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -74,11 +73,9 @@ MainWindow::MainWindow()
     monitor_ = new ProcessMonitor(&process_, kMonitorIntervalMs, this);
 
     model_ = new FlagTableModel(&flags_, this);
-    proxy_ = new QSortFilterProxyModel(this);
+    model_->setOffsets(&offsets_->offsets()); // để dự đoán trạng thái từng flag trước khi Apply
+    proxy_ = new FlagFilterProxyModel(this);
     proxy_->setSourceModel(model_);
-    proxy_->setFilterKeyColumn(-1); // lọc trên mọi cột (tên và giá trị)
-    proxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
-    proxy_->setDynamicSortFilter(true);
 
     searchDebounce_.setSingleShot(true);
     searchDebounce_.setInterval(kSearchDebounceMs);
@@ -141,9 +138,14 @@ void MainWindow::buildUi()
     content->addLayout(actions);
 
     search_ = new QLineEdit(this);
-    search_->setPlaceholderText(QStringLiteral("Tìm flag theo tên hoặc giá trị..."));
+    search_->setPlaceholderText(QStringLiteral("Tìm theo tên, giá trị hoặc trạng thái..."));
     search_->setClearButtonEnabled(true);
-    content->addWidget(search_);
+    problemsOnlyCheck_ = new QCheckBox(QStringLiteral("Chỉ hiện flag có vấn đề"), this);
+
+    auto *filterRow = new QHBoxLayout();
+    filterRow->addWidget(search_, 1);
+    filterRow->addWidget(problemsOnlyCheck_);
+    content->addLayout(filterRow);
 
     table_ = new QTableView(this);
     table_->setModel(proxy_);
@@ -155,11 +157,16 @@ void MainWindow::buildUi()
     table_->setShowGrid(false);
     table_->setSortingEnabled(true);
     table_->sortByColumn(FlagTableModel::NameColumn, Qt::AscendingOrder);
-    table_->horizontalHeader()->setSectionResizeMode(FlagTableModel::NameColumn, QHeaderView::Stretch);
-    table_->horizontalHeader()->setSectionResizeMode(FlagTableModel::ValueColumn, QHeaderView::Stretch);
+    table_->setTextElideMode(Qt::ElideRight);
+    QHeaderView *header = table_->horizontalHeader();
+    header->setSectionResizeMode(FlagTableModel::NameColumn, QHeaderView::Stretch);
+    header->setSectionResizeMode(FlagTableModel::ValueColumn, QHeaderView::Interactive);
+    header->setSectionResizeMode(FlagTableModel::StatusColumn, QHeaderView::Interactive);
+    header->resizeSection(FlagTableModel::ValueColumn, 110);
+    header->resizeSection(FlagTableModel::StatusColumn, 190);
     content->addWidget(table_, 1);
 
-    auto *hint = new QLabel(QStringLiteral("Nhấp đúp (hoặc F2) vào cột VALUE để sửa · Delete để xóa"), this);
+    auto *hint = new QLabel(QStringLiteral("Nhấp đúp (hoặc F2) cột VALUE để sửa · rê chuột vào NAME/STATUS để xem lý do · Delete để xóa"), this);
     hint->setStyleSheet(QStringLiteral("color:#555;font-size:10px;border:none;"));
     content->addWidget(hint);
 
@@ -194,6 +201,9 @@ void MainWindow::connectSignals()
     connect(proxy_, &QAbstractItemModel::rowsInserted, this, [this] { updateCount(); });
     connect(proxy_, &QAbstractItemModel::rowsRemoved, this, [this] { updateCount(); });
     connect(proxy_, &QAbstractItemModel::modelReset, this, [this] { updateCount(); });
+    connect(model_, &QAbstractItemModel::dataChanged, this, [this] { updateCount(); });
+    connect(problemsOnlyCheck_, &QCheckBox::toggled, this,
+            [this](bool checked) { proxy_->setProblemsOnly(checked); });
     connect(model_, &FlagTableModel::valueEdited, this, &MainWindow::onValueEdited);
 
     connect(autoApplyCheck_, &QCheckBox::toggled, this, [this](bool checked) {
@@ -211,6 +221,7 @@ void MainWindow::connectSignals()
 
     connect(monitor_, &ProcessMonitor::statusChanged, this, &MainWindow::onProcessStatusChanged);
     connect(monitor_, &ProcessMonitor::attached, this, [this] {
+        model_->clearApplyResults(); // tiến trình mới: kết quả Apply cũ không còn đúng
         // Roblox có thể vừa cập nhật: lấy offsets mới nhất nếu đang lệch phiên bản.
         if (currentVersionMatch() == VersionMatch::Mismatch)
             offsets_->refresh();
@@ -330,13 +341,21 @@ void MainWindow::applyAll(bool interactive)
 
     const ApplyReport report =
         applyFlags(flags_.entries(), offsets_->offsets(), process_.imageBase(), process_);
-    setStatus(report.summary(), report.applied > 0 && report.verifyFailed == 0);
+    model_->setApplyResults(report.results);
+
+    const int problems = report.verifyFailed + report.missingOffset + report.invalidValue + report.writeFailed;
+    QString message = report.summary();
+    if (problems > 0)
+        message += QStringLiteral(" · xem cột STATUS để biết flag nào lỗi");
+    setStatus(message, report.applied > 0 && report.verifyFailed == 0);
 }
 
 // ---- Phản hồi từ service ---------------------------------------------------
 
 void MainWindow::onProcessStatusChanged(const ProcessStatus &status)
 {
+    if (status.state != ProcessState::Connected)
+        model_->clearApplyResults(); // mất kết nối: trạng thái "đã áp dụng" không còn đúng
     switch (status.state) {
     case ProcessState::Connected:
         setStatus(QStringLiteral("Đã kết nối Roblox · PID %1").arg(status.pid), true);
@@ -362,6 +381,7 @@ void MainWindow::onProcessStatusChanged(const ProcessStatus &status)
 
 void MainWindow::onOffsetsFinished(OffsetsService::Outcome outcome, const QString &detail)
 {
+    model_->refreshStatuses(); // bảng offsets có thể đã đổi: tính lại dự đoán từng flag
     updateOffsetsLabel();
     updateVersionLabel();
     updateControls();
@@ -402,8 +422,12 @@ void MainWindow::onValueEdited(const QString &name, const QString &value)
 
 void MainWindow::updateCount()
 {
-    countLabel_->setText(QStringLiteral("Flags đã lưu: %1  ·  Đang hiển thị: %2")
-                             .arg(flags_.size()).arg(proxy_->rowCount()));
+    const int problems = model_->problemCount();
+    QString text = QStringLiteral("Flags đã lưu: %1  ·  Đang hiển thị: %2")
+                       .arg(flags_.size()).arg(proxy_->rowCount());
+    if (problems > 0)
+        text += QStringLiteral("  ·  Không áp dụng được: %1").arg(problems);
+    countLabel_->setText(text);
     updateControls();
 }
 

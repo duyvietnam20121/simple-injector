@@ -10,7 +10,7 @@ include(CTest)
 # Phiên bản Qt tối thiểu; có thể hạ khi build thử: -DSI_QT_MIN_VERSION=6.4
 set(SI_QT_MIN_VERSION 6.7 CACHE STRING "Minimum Qt 6 version")
 
-find_package(Qt6 ${SI_QT_MIN_VERSION} REQUIRED COMPONENTS Core Widgets Network)
+find_package(Qt6 ${SI_QT_MIN_VERSION} REQUIRED COMPONENTS Core Gui Widgets Network)
 qt_standard_project_setup()
 
 # Hàm tiện ích: bật cảnh báo chặt cho mọi target của dự án.
@@ -78,7 +78,7 @@ endif()
 
 # ---- Thư viện lõi (không có giao diện, kiểm thử được) -----------------------
 add_library(SimpleInjectorCore STATIC ${SI_CORE_SOURCES})
-target_link_libraries(SimpleInjectorCore PUBLIC Qt6::Core Qt6::Network)
+target_link_libraries(SimpleInjectorCore PUBLIC Qt6::Core Qt6::Gui Qt6::Network)
 target_include_directories(SimpleInjectorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 si_enable_warnings(SimpleInjectorCore)
 

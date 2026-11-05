@@ -16,10 +16,10 @@ class QCloseEvent;
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QSortFilterProxyModel;
 class QTableView;
 
 namespace SimpleInjector {
+class FlagFilterProxyModel;
 class FlagTableModel;
 class ProcessMonitor;
 } // namespace SimpleInjector
@@ -70,7 +70,7 @@ private:
     OffsetsService *offsets_ = nullptr;
     ProcessMonitor *monitor_ = nullptr;
     FlagTableModel *model_ = nullptr;
-    QSortFilterProxyModel *proxy_ = nullptr;
+    FlagFilterProxyModel *proxy_ = nullptr;
     QTimer searchDebounce_;
     bool pendingAutoApply_ = false; ///< Auto Apply bị hoãn vì offsets lệch phiên bản, chờ bản mới.
 
@@ -80,6 +80,7 @@ private:
     QLabel *countLabel_ = nullptr;
     QLineEdit *search_ = nullptr;
     QTableView *table_ = nullptr;
+    QCheckBox *problemsOnlyCheck_ = nullptr;
     QCheckBox *autoApplyCheck_ = nullptr;
     QPushButton *addButton_ = nullptr;
     QPushButton *removeButton_ = nullptr;

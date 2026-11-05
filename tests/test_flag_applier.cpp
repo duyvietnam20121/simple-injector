@@ -108,6 +108,74 @@ private slots:
         QCOMPARE(report.verifyFailed, 0);
     }
 
+    void perFlagResultsExplainEachOutcome()
+    {
+        FakeWriter writer;
+        writer.failingWrites.insert(0x1000 + 0x30);
+        writer.ignoredWrites.insert(0x1000 + 0x40);
+        writer.memory.insert(0x1000 + 0x40, 9);
+        const OffsetMap offsets{
+            {QStringLiteral("Ok"), 0x10},
+            {QStringLiteral("Text"), 0x20},
+            {QStringLiteral("Denied"), 0x30},
+            {QStringLiteral("Stale"), 0x40},
+        };
+        QJsonObject flags;
+        flags.insert(QStringLiteral("Ok"), QStringLiteral("5"));
+        flags.insert(QStringLiteral("NoOffset"), QStringLiteral("5"));
+        flags.insert(QStringLiteral("Text"), QStringLiteral("abc"));
+        flags.insert(QStringLiteral("Denied"), QStringLiteral("1"));
+        flags.insert(QStringLiteral("Stale"), QStringLiteral("1"));
+
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
+
+        QCOMPARE(report.results.size(), 5);
+        QCOMPARE(report.results.value(QStringLiteral("Ok")).status, FlagStatus::Applied);
+        QCOMPARE(report.results.value(QStringLiteral("NoOffset")).status, FlagStatus::MissingOffset);
+        QCOMPARE(report.results.value(QStringLiteral("Text")).status, FlagStatus::InvalidValue);
+        QCOMPARE(report.results.value(QStringLiteral("Denied")).status, FlagStatus::WriteFailed);
+        QCOMPARE(report.results.value(QStringLiteral("Stale")).status, FlagStatus::VerifyFailed);
+
+        for (const FlagResult &result : report.results)
+            QVERIFY(!result.detail.isEmpty());
+        QVERIFY(report.results.value(QStringLiteral("Stale")).detail.contains(QStringLiteral("9"))); // giá trị đọc lại
+        QVERIFY(report.results.value(QStringLiteral("NoOffset")).detail.contains(QStringLiteral("NoOffset")));
+        QVERIFY(report.results.value(QStringLiteral("Text")).detail.contains(QStringLiteral("abc")));
+    }
+
+    void resultsAreKeyedByOriginalFlagName()
+    {
+        FakeWriter writer;
+        const OffsetMap offsets{{QStringLiteral("Alpha"), 0x8}};
+        QJsonObject flags;
+        flags.insert(QStringLiteral("FFlagAlpha"), QStringLiteral("1"));
+
+        const ApplyReport report = applyFlags(flags, offsets, 0x100, writer);
+        QVERIFY(report.results.contains(QStringLiteral("FFlagAlpha")));
+    }
+
+    void previewMatchesWhatApplyWouldDecide()
+    {
+        const OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}};
+        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("true"), offsets).status, FlagStatus::Ready);
+        QCOMPARE(previewFlag(QStringLiteral("FFlagAlpha"), QStringLiteral("0x7"), offsets).status, FlagStatus::Ready);
+        QCOMPARE(previewFlag(QStringLiteral("Beta"), QStringLiteral("1"), offsets).status, FlagStatus::MissingOffset);
+        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("hello"), offsets).status, FlagStatus::InvalidValue);
+        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("99999999999"), offsets).status, FlagStatus::InvalidValue);
+        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("1"), {}).status, FlagStatus::Unknown);
+    }
+
+    void isProblemClassification()
+    {
+        QVERIFY(isProblem(FlagStatus::MissingOffset));
+        QVERIFY(isProblem(FlagStatus::InvalidValue));
+        QVERIFY(isProblem(FlagStatus::VerifyFailed));
+        QVERIFY(isProblem(FlagStatus::WriteFailed));
+        QVERIFY(!isProblem(FlagStatus::Unknown));
+        QVERIFY(!isProblem(FlagStatus::Ready));
+        QVERIFY(!isProblem(FlagStatus::Applied));
+    }
+
     void prefixedFlagNamesStillMatchOffsets()
     {
         FakeWriter writer;
