@@ -5,7 +5,9 @@
 #include <QJsonParseError>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QPair>
 #include <QStringList>
+#include <QVector>
 
 #include <limits>
 
@@ -29,15 +31,27 @@ QString cleanPrefix(QString name)
         if (!name.startsWith(prefix, Qt::CaseSensitive))
             continue;
 
-        // "FIntensity" không phải flag có tiền tố "FInt": ký tự kế tiếp là chữ thường.
-        const QChar next = name.size() > prefix.size() ? name.at(prefix.size()) : QChar();
-        if (next.isLower())
-            continue;
-
         name.remove(0, prefix.size());
         break;
     }
     return name.trimmed();
+}
+
+std::optional<quintptr> lookupOffset(const QHash<QString, quintptr> &offsets, const QString &flagName)
+{
+    const QString trimmed = flagName.trimmed();
+
+    const auto exact = offsets.constFind(trimmed);
+    if (exact != offsets.cend())
+        return exact.value();
+
+    const QString cleaned = cleanPrefix(trimmed);
+    if (cleaned != trimmed) {
+        const auto stripped = offsets.constFind(cleaned);
+        if (stripped != offsets.cend())
+            return stripped.value();
+    }
+    return std::nullopt;
 }
 
 QString jsonValueToString(const QJsonValue &value, bool *ok)
@@ -92,6 +106,8 @@ QHash<QString, quintptr> parseOffsetsHeader(const QString &source)
         QStringLiteral(R"((\w+)\s*=\s*(0x[0-9A-Fa-f]+))"));
 
     QHash<QString, quintptr> parsed;
+    QVector<QPair<QString, quintptr>> inOrder;
+
     auto iterator = pattern.globalMatch(source);
     while (iterator.hasNext()) {
         const QRegularExpressionMatch match = iterator.next();
@@ -100,9 +116,16 @@ QHash<QString, quintptr> parseOffsetsHeader(const QString &source)
         if (!ok || value == 0 || value > std::numeric_limits<quintptr>::max())
             continue;
 
-        const QString name = cleanPrefix(match.captured(1));
-        if (!name.isEmpty())
-            parsed.insert(name, static_cast<quintptr>(value));
+        const QString name = match.captured(1);
+        parsed.insert(name, static_cast<quintptr>(value)); // tên nguyên văn luôn được ưu tiên
+        inOrder.append({name, static_cast<quintptr>(value)});
+    }
+
+    // Bản đã gỡ tiền tố: chỉ thêm khi chưa có tên nguyên văn nào trùng.
+    for (const auto &entry : std::as_const(inOrder)) {
+        const QString cleaned = cleanPrefix(entry.first);
+        if (!cleaned.isEmpty() && cleaned != entry.first && !parsed.contains(cleaned))
+            parsed.insert(cleaned, entry.second);
     }
     return parsed;
 }

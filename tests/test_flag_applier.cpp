@@ -1,4 +1,5 @@
 #include "core/flag_applier.h"
+#include "core/flag_utils.h"
 
 #include <QMap>
 #include <QSet>
@@ -141,6 +142,23 @@ private slots:
         QVERIFY(report.results.value(QStringLiteral("Stale")).detail.contains(QStringLiteral("9"))); // giá trị đọc lại
         QVERIFY(report.results.value(QStringLiteral("NoOffset")).detail.contains(QStringLiteral("NoOffset")));
         QVERIFY(report.results.value(QStringLiteral("Text")).detail.contains(QStringLiteral("abc")));
+    }
+
+    void flagsWithLowercaseNamesAndVerbatimPrefixedNamesAreFound()
+    {
+        FakeWriter writer;
+        const OffsetMap offsets = parseOffsetsHeader(QStringLiteral(
+            "inline constexpr std::uintptr_t kCageHoleNum = 0x10;\n"
+            "inline constexpr std::uintptr_t FFlagMigrateCameraFovDatamodel = 0x20;\n"));
+        QJsonObject flags;
+        flags.insert(QStringLiteral("FIntkCageHoleNum"), QStringLiteral("5"));
+        flags.insert(QStringLiteral("kCageHoleNum"), QStringLiteral("6"));
+        flags.insert(QStringLiteral("FFlagMigrateCameraFovDatamodel"), QStringLiteral("true"));
+        flags.insert(QStringLiteral("MigrateCameraFovDatamodel"), QStringLiteral("true"));
+
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
+        QCOMPARE(report.applied, 4);
+        QCOMPARE(report.missingOffset, 0);
     }
 
     void resultsAreKeyedByOriginalFlagName()

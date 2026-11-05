@@ -3,6 +3,7 @@
 #include "flag_utils.h"
 
 #include <limits>
+#include <optional>
 
 namespace SimpleInjector {
 
@@ -36,12 +37,15 @@ FlagResult previewFlag(const QString &name, const QString &value, const OffsetMa
     if (offsets.isEmpty())
         return {FlagStatus::Unknown, QStringLiteral("Chưa có bảng offsets để đối chiếu.")};
 
-    const QString cleaned = cleanPrefix(name);
-    const auto offsetIt = offsets.constFind(cleaned);
-    if (offsetIt == offsets.cend()) {
+    const std::optional<quintptr> offset = lookupOffset(offsets, name);
+    if (!offset) {
+        const QString cleaned = cleanPrefix(name);
+        const QString tried = (cleaned == name.trimmed())
+            ? QStringLiteral("\"%1\"").arg(name.trimmed())
+            : QStringLiteral("\"%1\" và \"%2\"").arg(name.trimmed(), cleaned);
         return {FlagStatus::MissingOffset,
-                QStringLiteral("Bảng offsets không có \"%1\" (flag đổi tên, đã bị xóa hoặc gõ sai).")
-                    .arg(cleaned)};
+                QStringLiteral("Bảng offsets không có %1 (flag đổi tên, đã bị xóa, đổi phiên bản hoặc gõ sai).")
+                    .arg(tried)};
     }
 
     qint32 ignored = 0;
@@ -52,7 +56,7 @@ FlagResult previewFlag(const QString &name, const QString &value, const OffsetMa
     }
 
     return {FlagStatus::Ready,
-            QStringLiteral("Có offset %1, giá trị hợp lệ. Chưa Apply.").arg(hex(offsetIt.value()))};
+            QStringLiteral("Có offset %1, giá trị hợp lệ. Chưa Apply.").arg(hex(*offset))};
 }
 
 QString ApplyReport::summary() const
@@ -101,7 +105,7 @@ ApplyReport applyFlags(const QJsonObject &flags,
         qint32 expected = 0;
         parseInt32Value(value, &expected); // đã được previewFlag xác nhận hợp lệ
 
-        const quintptr offset = offsets.value(cleanPrefix(key));
+        const quintptr offset = lookupOffset(offsets, key).value_or(0); // previewFlag đã đảm bảo có
         if (offset > std::numeric_limits<quintptr>::max() - imageBase) {
             record(key, FlagStatus::WriteFailed, &ApplyReport::writeFailed,
                    QStringLiteral("Địa chỉ imageBase + %1 bị tràn số, offset không hợp lệ.").arg(hex(offset)));
