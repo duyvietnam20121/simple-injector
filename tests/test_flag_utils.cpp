@@ -177,6 +177,52 @@ private slots:
         QVERIFY(!find(QString()).has_value());
     }
 
+    void suggestOffsetNamesRanksCloseMatches()
+    {
+        const QHash<QString, quintptr> offsets = SimpleInjector::parseOffsetsHeader(QStringLiteral(
+            "inline constexpr std::uintptr_t DebugDisplayFps = 0x10;\n"
+            "inline constexpr std::uintptr_t AvatarSaveV3Enabled = 0x20;\n"
+            "inline constexpr std::uintptr_t AvatarSaveV4Enabled = 0x30;\n"
+            "inline constexpr std::uintptr_t RenderGrassDetailStrandsExtra = 0x40;\n"
+            "inline constexpr std::uintptr_t Unrelated = 0x50;\n"));
+
+        // Chỉ khác hoa/thường: đứng đầu danh sách.
+        QCOMPARE(SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("FFlagDebugDisplayFPS")).value(0),
+                 QStringLiteral("DebugDisplayFps"));
+
+        // Chỉ khác số cuối (V3 -> V4): được gợi ý, bản V3 đã nhập thì không tự gợi ý lại chính nó.
+        const QStringList versions = SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("AvatarSaveV5Enabled"));
+        QVERIFY(versions.isEmpty()); // V5 và V3/V4 khác nhau ở giữa chuỗi, không phải số cuối
+        const QStringList trailing = SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("DebugDisplayFps2"));
+        QCOMPARE(trailing.value(0), QStringLiteral("DebugDisplayFps"));
+
+        // Một tên chứa tên kia.
+        const QStringList contained = SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("RenderGrassDetailStrands"));
+        QCOMPARE(contained.value(0), QStringLiteral("RenderGrassDetailStrandsExtra"));
+
+        QVERIFY(SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("CompletelyDifferentName")).isEmpty());
+    }
+
+    void suggestOffsetNamesHandlesEdgeCases()
+    {
+        const QHash<QString, quintptr> offsets = SimpleInjector::parseOffsetsHeader(QStringLiteral(
+            "inline constexpr std::uintptr_t Alpha = 0x10;\n"));
+        QVERIFY(SimpleInjector::suggestOffsetNames({}, QStringLiteral("Alpha")).isEmpty());
+        QVERIFY(SimpleInjector::suggestOffsetNames(offsets, QString()).isEmpty());
+        QVERIFY(SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("alp"), 0).isEmpty());
+        // Tên đã tồn tại trong bảng không được gợi ý chính nó.
+        QVERIFY(SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("FFlagAlpha")).isEmpty());
+    }
+
+    void suggestOffsetNamesRespectsLimit()
+    {
+        QString source;
+        for (int i = 0; i < 10; ++i)
+            source += QStringLiteral("inline constexpr std::uintptr_t SharedStemName%1 = 0x%2;\n").arg(i).arg(16 + i);
+        const auto offsets = SimpleInjector::parseOffsetsHeader(source);
+        QCOMPARE(SimpleInjector::suggestOffsetNames(offsets, QStringLiteral("SharedStemName"), 3).size(), 3);
+    }
+
     void parseJsonObjectAcceptsObject()
     {
         QString error;

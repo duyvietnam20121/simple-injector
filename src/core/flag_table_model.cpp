@@ -111,6 +111,18 @@ FlagResult FlagTableModel::resultFor(const QString &name) const
                        offsets_ ? *offsets_ : kNoOffsets);
 }
 
+QString FlagTableModel::tooltipFor(const QString &name) const
+{
+    const FlagResult result = resultFor(name);
+    if (result.status != FlagStatus::MissingOffset || !offsets_ || offsets_->isEmpty())
+        return result.detail;
+
+    const QStringList hints = suggestOffsetNames(*offsets_, name);
+    if (hints.isEmpty())
+        return result.detail;
+    return result.detail + QStringLiteral("\nGợi ý gần giống trong bảng offsets: ") + hints.join(QStringLiteral(", "));
+}
+
 FlagStatus FlagTableModel::statusAt(int row) const
 {
     return (row >= 0 && row < names_.size()) ? resultFor(names_.at(row)).status : FlagStatus::Unknown;
@@ -154,7 +166,7 @@ QVariant FlagTableModel::data(const QModelIndex &index, int role) const
         const FlagResult result = resultFor(name);
         switch (role) {
         case Qt::DisplayRole:    return statusText(result.status);
-        case Qt::ToolTipRole:    return result.detail;
+        case Qt::ToolTipRole:    return tooltipFor(name);
         case Qt::ForegroundRole: return statusColor(result.status);
         case StatusRole:         return static_cast<int>(result.status);
         case SortRole:           return sortRank(result.status);
@@ -170,7 +182,7 @@ QVariant FlagTableModel::data(const QModelIndex &index, int role) const
         return index.column() == NameColumn ? name : value;
     case Qt::ToolTipRole:
         if (index.column() == NameColumn)
-            return resultFor(name).detail;
+            return tooltipFor(name);
         return QStringLiteral("Nhấp đúp hoặc F2 để sửa giá trị");
     default:
         return {};

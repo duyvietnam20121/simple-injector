@@ -82,6 +82,7 @@ private:
     QTableView *table_ = nullptr;
     QCheckBox *problemsOnlyCheck_ = nullptr;
     QCheckBox *autoApplyCheck_ = nullptr;
+    QPushButton *refreshOffsetsButton_ = nullptr;
     QPushButton *addButton_ = nullptr;
     QPushButton *removeButton_ = nullptr;
     QPushButton *exportButton_ = nullptr;

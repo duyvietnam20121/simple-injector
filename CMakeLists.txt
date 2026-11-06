@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.21)
-project(SimpleInjector VERSION 1.2.0 LANGUAGES CXX)
+project(SimpleInjector VERSION 1.1.0 LANGUAGES CXX)
+
+# Trình biên dịch tài nguyên Windows (để gắn icon và thông tin phiên bản vào .exe).
+if(WIN32)
+    enable_language(RC)
+endif()
+
+# Phiên bản hiển thị: v<major>.<minor> (ví dụ v1.1).
+set(SI_VERSION_SHORT "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +20,7 @@ set(SI_QT_MIN_VERSION 6.7 CACHE STRING "Minimum Qt 6 version")
 
 find_package(Qt6 ${SI_QT_MIN_VERSION} REQUIRED COMPONENTS Core Gui Widgets Network)
 qt_standard_project_setup()
+set(CMAKE_AUTORCC ON) # biên dịch resources/app.qrc (icon) vào file thực thi
 
 # Hàm tiện ích: bật cảnh báo chặt cho mọi target của dự án.
 function(si_enable_warnings target)
@@ -43,6 +52,12 @@ set(SI_APP_SOURCES
     src/ui/main_window.cpp     src/ui/main_window.h
     src/ui/style.h
     src/ui/title_bar.cpp       src/ui/title_bar.h
+    resources/app.qrc
+)
+set(SI_RESOURCE_FILES
+    resources/icons/app.png
+    resources/icons/app.ico
+    resources/app.rc.in
 )
 set(SI_TEST_SOURCES
     tests/test_flag_utils.cpp
@@ -58,7 +73,7 @@ set(SI_TEST_SOURCES
 
 # Kiểm tra trước để báo MỘT LẦN toàn bộ file bị thiếu (thay vì dừng ở lỗi đầu tiên).
 set(_si_missing "")
-foreach(_file IN LISTS SI_CORE_SOURCES SI_APP_SOURCES)
+foreach(_file IN LISTS SI_CORE_SOURCES SI_APP_SOURCES SI_RESOURCE_FILES)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_file}")
         list(APPEND _si_missing "${_file}")
     endif()
@@ -85,7 +100,14 @@ si_enable_warnings(SimpleInjectorCore)
 # ---- Ứng dụng ---------------------------------------------------------------
 qt_add_executable(SimpleInjector WIN32 ${SI_APP_SOURCES})
 target_link_libraries(SimpleInjector PRIVATE SimpleInjectorCore Qt6::Widgets)
+target_compile_definitions(SimpleInjector PRIVATE SI_APP_VERSION="${SI_VERSION_SHORT}")
 si_enable_warnings(SimpleInjector)
+
+if(WIN32)
+    set(SI_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/app.ico")
+    configure_file(resources/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
+    target_sources(SimpleInjector PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/app.rc")
+endif()
 
 if(WIN32)
     target_compile_definitions(SimpleInjector PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

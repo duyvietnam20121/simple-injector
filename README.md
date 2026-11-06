@@ -1,4 +1,4 @@
-# Simple Injector — C++20 / Qt 6
+# Simple Injector v1.1 — C++20 / Qt 6
 
 Ứng dụng desktop C++20 + Qt 6 Widgets để quản lý danh sách FastFlag và ghi các giá trị
 số nguyên/boolean vào `RobloxPlayerBeta.exe` đang chạy (Windows).
@@ -73,6 +73,15 @@ Windows chỉ biên dịch được trên Windows).
 `.github/workflows/ci.yml` chạy trên push/PR: cài Qt 6.8.3, build, chạy CTest, `windeployqt`,
 rồi tải thư mục `Simple-Injector-windows-x64` lên Artifacts. Bản portable không kèm Microsoft
 Visual C++ Redistributable (x64) — cài thêm nếu Windows báo thiếu DLL MSVC.
+
+## Phiên bản và icon
+
+- Phiên bản khai báo MỘT chỗ: `project(SimpleInjector VERSION 1.1.0 ...)` trong `CMakeLists.txt`.
+  Từ đó CMake sinh ra: số hiển thị `v1.1` trên thanh tiêu đề và tiêu đề cửa sổ, cùng thông tin phiên bản
+  trong file `.exe` (Properties > Details). Lên bản mới chỉ cần sửa dòng này.
+- Icon nằm ở `resources/icons/`: `app.ico` (nhiều cỡ 16–256 px, gắn vào `.exe` qua `resources/app.rc.in`)
+  và `app.png` (nhúng bằng `resources/app.qrc`, dùng cho thanh tiêu đề và icon cửa sổ).
+  Muốn đổi icon, thay hai file này (giữ nguyên tên) rồi build lại.
 
 ## Dữ liệu
 

@@ -151,6 +151,28 @@ private slots:
         QVERIFY(zetaStatus.data(Qt::ToolTipRole).toString().contains(QStringLiteral("Zeta")));
     }
 
+    void missingOffsetTooltipSuggestsCloseNames()
+    {
+        FlagStore store;
+        QJsonObject flags;
+        flags.insert(QStringLiteral("DebugDisplayFPS"), true); // sai hoa/thường so với bảng offsets
+        flags.insert(QStringLiteral("TotallyUnknown"), true);
+        store.merge(flags);
+        OffsetMap offsets{{QStringLiteral("DebugDisplayFps"), 0x10}};
+        FlagTableModel model(&store);
+        model.setOffsets(&offsets);
+
+        QCOMPARE(model.statusAt(0), FlagStatus::MissingOffset);
+        const QString hinted = model.index(0, FlagTableModel::StatusColumn).data(Qt::ToolTipRole).toString();
+        QVERIFY(hinted.contains(QStringLiteral("Gợi ý")));
+        QVERIFY(hinted.contains(QStringLiteral("DebugDisplayFps")));
+        QVERIFY(model.index(0, FlagTableModel::NameColumn).data(Qt::ToolTipRole).toString()
+                    .contains(QStringLiteral("DebugDisplayFps")));
+
+        const QString plain = model.index(1, FlagTableModel::StatusColumn).data(Qt::ToolTipRole).toString();
+        QVERIFY(!plain.contains(QStringLiteral("Gợi ý"))); // không có gì gần giống thì không gợi ý
+    }
+
     void refreshStatusesFollowsOffsetsContent()
     {
         FlagStore store;

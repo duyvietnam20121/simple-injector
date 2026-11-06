@@ -4,6 +4,7 @@
 #include "core/roblox_version.h"
 
 #include <QDebug>
+#include <QFileInfo>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -23,6 +24,8 @@ OffsetsService::OffsetsService(QUrl sourceUrl, QString cachePath, QObject *paren
 void OffsetsService::loadCache()
 {
     offsets_ = loadOffsetsCache(cachePath_, &version_);
+    source_ = offsets_.isEmpty() ? Source::None : Source::Cache;
+    loadedAt_ = offsets_.isEmpty() ? QDateTime() : QFileInfo(cachePath_).lastModified();
 }
 
 void OffsetsService::startAutoRefresh(int intervalMs)
@@ -55,27 +58,32 @@ void OffsetsService::onReplyFinished(QNetworkReply *reply)
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit refreshFinished(Outcome::NetworkError, reply->errorString());
+        lastError_ = reply->errorString();
+        emit refreshFinished(Outcome::NetworkError, lastError_);
         return;
     }
 
     const QByteArray body = reply->readAll();
     if (body.size() > maxBodyBytes_) {
-        emit refreshFinished(Outcome::TooLarge,
-                             QStringLiteral("Phản hồi lớn %1 byte, vượt giới hạn %2")
-                                 .arg(body.size()).arg(maxBodyBytes_));
+        lastError_ = QStringLiteral("Phản hồi lớn %1 byte, vượt giới hạn %2")
+                         .arg(body.size()).arg(maxBodyBytes_);
+        emit refreshFinished(Outcome::TooLarge, lastError_);
         return;
     }
 
     const QString source = QString::fromUtf8(body);
     OffsetMap parsed = parseOffsetsHeader(source);
     if (parsed.isEmpty()) {
-        emit refreshFinished(Outcome::EmptyResult, QStringLiteral("Nguồn không có mục offset hợp lệ"));
+        lastError_ = QStringLiteral("Nguồn không có mục offset hợp lệ");
+        emit refreshFinished(Outcome::EmptyResult, lastError_);
         return;
     }
 
     offsets_ = std::move(parsed);
     version_ = parseOffsetsVersion(source);
+    source_ = Source::Network;
+    loadedAt_ = QDateTime::currentDateTime();
+    lastError_.clear();
 
     QString saveError;
     if (!saveOffsetsCache(cachePath_, offsets_, version_, &saveError))

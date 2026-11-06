@@ -13,6 +13,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -53,7 +54,7 @@ QString shortVersion(const QString &version)
 
 MainWindow::MainWindow()
 {
-    setWindowTitle(QStringLiteral("Simple Injector"));
+    setWindowTitle(QStringLiteral("Simple Injector v%1").arg(QCoreApplication::applicationVersion()));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
 
@@ -120,8 +121,16 @@ void MainWindow::buildUi()
     content->addWidget(versionLabel_);
 
     offsetsLabel_ = new QLabel(this);
-    offsetsLabel_->setStyleSheet(dimLabel);
-    content->addWidget(offsetsLabel_);
+    offsetsLabel_->setWordWrap(true);
+    refreshOffsetsButton_ = new QPushButton(QStringLiteral("↻ Làm mới"), this);
+    refreshOffsetsButton_->setFixedSize(92, 26);
+    refreshOffsetsButton_->setToolTip(QStringLiteral("Tải lại bảng offsets ngay bây giờ"));
+    refreshOffsetsButton_->setStyleSheet(QStringLiteral("padding:2px 8px;font-size:11px;"));
+
+    auto *offsetsRow = new QHBoxLayout();
+    offsetsRow->addWidget(offsetsLabel_, 1);
+    offsetsRow->addWidget(refreshOffsetsButton_, 0, Qt::AlignTop);
+    content->addLayout(offsetsRow);
 
     countLabel_ = new QLabel(this);
     countLabel_->setStyleSheet(dimLabel);
@@ -191,6 +200,7 @@ void MainWindow::connectSignals()
     connect(removeButton_, &QPushButton::clicked, this, [this] { removeSelected(); });
     connect(exportButton_, &QPushButton::clicked, this, [this] { exportFlags(); });
     connect(applyButton_, &QPushButton::clicked, this, [this] { applyAll(true); });
+    connect(refreshOffsetsButton_, &QPushButton::clicked, this, [this] { offsets_->refresh(); });
 
     connect(search_, &QLineEdit::textChanged, &searchDebounce_, qOverload<>(&QTimer::start));
     connect(&searchDebounce_, &QTimer::timeout, this, [this] {
@@ -433,10 +443,35 @@ void MainWindow::updateCount()
 
 void MainWindow::updateOffsetsLabel()
 {
-    offsetsLabel_->setText(QStringLiteral("Offsets: %1 đã nạp  ·  nguồn: fflags.hpp%2")
-                               .arg(offsets_->offsets().size())
-                               .arg(offsets_->isRefreshing() ? QStringLiteral("  ·  đang cập nhật...")
-                                                             : QString()));
+    QString text = QStringLiteral("Offsets: %1 mục").arg(offsets_->offsets().size());
+    if (!offsets_->version().isEmpty())
+        text += QStringLiteral(" · %1").arg(offsets_->version());
+
+    switch (offsets_->source()) {
+    case OffsetsService::Source::Network:
+        text += QStringLiteral(" · tải từ mạng lúc %1").arg(offsets_->loadedAt().toString(QStringLiteral("HH:mm:ss")));
+        break;
+    case OffsetsService::Source::Cache:
+        text += QStringLiteral(" · CACHE trên đĩa (lưu lúc %1)")
+                    .arg(offsets_->loadedAt().toString(QStringLiteral("dd/MM HH:mm")));
+        break;
+    case OffsetsService::Source::None:
+        text += QStringLiteral(" · chưa có dữ liệu");
+        break;
+    }
+    if (offsets_->isRefreshing())
+        text += QStringLiteral(" · đang cập nhật...");
+
+    const bool failed = !offsets_->lastError().isEmpty();
+    if (failed) {
+        text += QStringLiteral("\n⚠ Lần tải gần nhất lỗi: %1").arg(offsets_->lastError());
+        if (offsets_->source() == OffsetsService::Source::Cache)
+            text += QStringLiteral(" — đang dùng bản cache, có thể thiếu flag mới");
+    }
+
+    offsetsLabel_->setText(text);
+    offsetsLabel_->setStyleSheet(versionStyle(failed ? QStringLiteral("#FFB347") : QStringLiteral("#777")));
+    refreshOffsetsButton_->setEnabled(!offsets_->isRefreshing());
 }
 
 void MainWindow::updateVersionLabel()

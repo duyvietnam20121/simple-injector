@@ -90,12 +90,69 @@ private slots:
         QCOMPARE(service.offsets().value(QStringLiteral("Alpha")), quintptr(0x10));
         QCOMPARE(service.offsets().value(QStringLiteral("Beta")), quintptr(0x20)); // đã bỏ tiền tố
         QCOMPARE(service.version(), QStringLiteral("version-aaaabbbbccccdddd"));
+        QCOMPARE(service.source(), OffsetsService::Source::Network);
+        QVERIFY(service.loadedAt().isValid());
+        QVERIFY(service.lastError().isEmpty());
 
         // Cache trên đĩa khớp, kèm phiên bản; một service mới khôi phục được.
         OffsetsService restored(server.url(), cache);
         restored.loadCache();
         QCOMPARE(restored.offsets(), service.offsets());
         QCOMPARE(restored.version(), service.version());
+        QCOMPARE(restored.source(), OffsetsService::Source::Cache);
+        QVERIFY(restored.loadedAt().isValid());
+    }
+
+    void emptyServiceHasNoSource()
+    {
+        QTemporaryDir dir;
+        OffsetsService service(QUrl(QStringLiteral("http://127.0.0.1:1/x")), dir.filePath(QStringLiteral("none.json")));
+        service.loadCache();
+        QCOMPARE(service.source(), OffsetsService::Source::None);
+        QVERIFY(!service.loadedAt().isValid());
+    }
+
+    void failureKeepsCacheSourceAndRecordsError()
+    {
+        QTemporaryDir dir;
+        const QString cache = dir.filePath(QStringLiteral("offsets.json"));
+        QVERIFY(saveOffsetsCache(cache, {{QStringLiteral("Old"), 0x99}}, QStringLiteral("version-old")));
+
+        FakeHttpServer server;
+        QVERIFY(server.start());
+        server.respondStatus("500 Internal Server Error");
+
+        OffsetsService service(server.url(), cache);
+        service.loadCache();
+        QSignalSpy finished(&service, &OffsetsService::refreshFinished);
+        service.refresh();
+        QVERIFY(finished.wait(5000));
+
+        QCOMPARE(service.source(), OffsetsService::Source::Cache); // vẫn là dữ liệu cache cũ
+        QVERIFY(!service.lastError().isEmpty());
+    }
+
+    void successAfterFailureClearsLastError()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer server;
+        QVERIFY(server.start());
+        server.respondStatus("503 Service Unavailable");
+
+        OffsetsService service(server.url(), dir.filePath(QStringLiteral("offsets.json")));
+        QSignalSpy finished(&service, &OffsetsService::refreshFinished);
+
+        service.refresh();
+        QVERIFY(finished.wait(5000));
+        QVERIFY(!service.lastError().isEmpty());
+        QCOMPARE(service.source(), OffsetsService::Source::None);
+
+        server.respondOk(kSampleHeader);
+        service.refresh();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 5000);
+
+        QVERIFY(service.lastError().isEmpty());
+        QCOMPARE(service.source(), OffsetsService::Source::Network);
     }
 
     void httpErrorKeepsPreviousOffsets()

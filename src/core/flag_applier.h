@@ -1,71 +1,56 @@
 #pragma once
 
-#include "offsets_cache.h"
-
+#include <QHash>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
+#include <optional>
 
 namespace SimpleInjector {
 
-/// Cổng truy cập bộ nhớ trừu tượng: bản Windows chạm vào tiến trình thật,
-/// bản giả trong test chỉ ghi nhận lời gọi.
-class IMemoryWriter {
-public:
-    virtual ~IMemoryWriter() = default;
+/// Gỡ MỘT tiền tố kiểu flag của Roblox (FFlag, DFInt, FString, SFFlag, ...).
+///
+/// Không áp luật nào về ký tự đứng sau tiền tố: nhiều flag thật có tên bắt đầu bằng chữ thường
+/// (ví dụ `FIntkCageHoleNum`, `DFIntjoinGame...`) nên phải gỡ được. Trường hợp tên vốn có dạng
+/// tiền tố nhưng không phải tiền tố được xử lý ở khâu tra cứu (xem lookupOffset), không ở đây.
+QString cleanPrefix(QString name);
 
-    /// Ghi một số nguyên 32-bit tại địa chỉ tuyệt đối; true nếu ghi đủ 4 byte.
-    virtual bool writeInt32(quintptr address, qint32 value) = 0;
+/// Tra offset của một flag trong bảng offsets. Thử theo thứ tự:
+///   1. đúng nguyên tên (bảng offsets thường lưu tên KHÔNG có tiền tố kiểu, nhưng vài tên thật
+///      tình cờ bắt đầu bằng "FFlag..."/"FInt..." và phải khớp nguyên văn),
+///   2. tên đã gỡ một tiền tố kiểu.
+/// Trả về std::nullopt nếu không có.
+std::optional<quintptr> lookupOffset(const QHash<QString, quintptr> &offsets, const QString &flagName);
 
-    /// Đọc một số nguyên 32-bit; true nếu đọc đủ 4 byte và đã điền *out.
-    virtual bool readInt32(quintptr address, qint32 *out) = 0;
-};
+/// Gợi ý tối đa `limit` tên TRONG BẢNG OFFSETS gần giống `flagName`, dùng khi không tra ra offset.
+/// Thứ tự ưu tiên: khác nhau chỉ ở hoa/thường; khác nhau chỉ ở số cuối (ví dụ `Foo2` và `Foo3`);
+/// một tên chứa tên kia (tên ngắn nhất 6 ký tự). Không trả về chính tên đã nhập.
+QStringList suggestOffsetNames(const QHash<QString, quintptr> &offsets, const QString &flagName,
+                               int limit = 3);
 
-/// Trạng thái của TỪNG flag, để người dùng biết chính xác flag nào áp dụng được và vì sao không.
-enum class FlagStatus {
-    Unknown,       ///< Chưa biết (chưa có bảng offsets để đối chiếu).
-    Ready,         ///< Có offset và giá trị hợp lệ, chưa Apply.
-    Applied,       ///< Đã ghi VÀ đọc lại thấy đúng giá trị.
-    VerifyFailed,  ///< Ghi báo thành công nhưng đọc lại không khớp (offset cũ / bị ghi đè).
-    MissingOffset, ///< Bảng offsets không có flag này.
-    InvalidValue,  ///< Giá trị không phải bool / int32 (ví dụ chuỗi), không thể Apply.
-    WriteFailed,   ///< Ghi thất bại hoặc địa chỉ tràn số.
-};
+/// Chuyển giá trị JSON (string / bool / number) sang dạng văn bản có thể sửa.
+/// Đặt *ok = false nếu kiểu JSON không được hỗ trợ (null, array, object).
+QString jsonValueToString(const QJsonValue &value, bool *ok = nullptr);
 
-/// Flag nào đáng chú ý (không áp dụng được hoặc áp dụng không xác nhận được).
-bool isProblem(FlagStatus status);
+/// Phân tích bool ("true"/"false"), số thập phân và số hex "0x...".
+/// Chỉ chấp nhận giá trị nằm trong miền số nguyên 32-bit có dấu.
+bool parseInt32Value(const QString &text, qint32 *out);
 
-struct FlagResult {
-    FlagStatus status = FlagStatus::Unknown;
-    QString detail; ///< Giải thích ngắn gọn bằng tiếng Việt, dùng làm tooltip.
-};
+/// Trích các mục `Tên = 0x...` từ header offsets. Bỏ qua offset bằng 0
+/// hoặc không biểu diễn được bằng quintptr. Mỗi tên được lưu NGUYÊN VĂN; nếu tên có dạng
+/// tiền tố + phần còn lại thì lưu thêm bản đã gỡ tiền tố (không ghi đè tên nguyên văn khác),
+/// để cả `FIntFoo` lẫn `Foo` đều tra ra.
+QHash<QString, quintptr> parseOffsetsHeader(const QString &source);
 
-/// Dự đoán trạng thái TRƯỚC khi Apply, chỉ dựa vào tên, giá trị và bảng offsets
-/// (không chạm bộ nhớ): Unknown / Ready / MissingOffset / InvalidValue.
-FlagResult previewFlag(const QString &name, const QString &value, const OffsetMap &offsets);
+/// Phân tích văn bản JSON có gốc là object. Trả về object rỗng và điền
+/// *error (nếu có) khi văn bản sai cú pháp hoặc gốc không phải object.
+QJsonObject parseJsonObject(const QString &text, QString *error = nullptr);
 
-/// Kết quả của một lần Apply, phân loại rõ từng nguyên nhân thất bại.
-struct ApplyReport {
-    int applied = 0;        ///< Ghi thành công VÀ đọc lại thấy đúng giá trị.
-    int verifyFailed = 0;   ///< Ghi báo thành công nhưng đọc lại không khớp (hoặc không đọc được).
-    int missingOffset = 0;  ///< Không có offset tương ứng.
-    int invalidValue = 0;   ///< Giá trị không phải bool / int32 (ví dụ chuỗi).
-    int writeFailed = 0;    ///< Ghi thất bại hoặc địa chỉ tràn số.
-
-    /// Kết quả chi tiết theo từng flag (khóa là tên flag đúng như trong kho).
-    QHash<QString, FlagResult> results;
-
-    int total() const { return applied + verifyFailed + missingOffset + invalidValue + writeFailed; }
-    QString summary() const;
-};
-
-/// Áp dụng từng flag: tên -> offset -> địa chỉ = imageBase + offset -> ghi int32,
-/// rồi đọc lại để xác nhận. Đọc lại không khớp thường nghĩa là offset đã cũ,
-/// hoặc game đã tự ghi đè giá trị ngay sau đó.
-ApplyReport applyFlags(const QJsonObject &flags,
-                       const OffsetMap &offsets,
-                       quintptr imageBase,
-                       IMemoryWriter &writer);
+/// Ghi/đọc object JSON. Ghi dùng QSaveFile nên thay thế file một cách nguyên tử.
+bool writeJsonAtomically(const QString &path, const QJsonObject &object, QString *error = nullptr);
+QJsonObject readJsonObject(const QString &path, const QJsonObject &fallback = {});
 
 } // namespace SimpleInjector

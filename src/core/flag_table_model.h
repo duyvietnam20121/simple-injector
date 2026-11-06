@@ -68,6 +68,7 @@ signals:
 
 private:
     FlagResult resultFor(const QString &name) const;
+    QString tooltipFor(const QString &name) const; ///< Chi tiết + gợi ý tên gần giống nếu thiếu offset.
     void emitStatusChanged();
 
     FlagStore *store_ = nullptr;

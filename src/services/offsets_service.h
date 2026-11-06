@@ -2,6 +2,7 @@
 
 #include "core/offsets_cache.h"
 
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -26,6 +27,14 @@ public:
     };
     Q_ENUM(Outcome)
 
+    /// Bảng offsets hiện tại đến từ đâu: giúp người dùng biết mình đang dùng dữ liệu mới hay cũ.
+    enum class Source {
+        None,    ///< Chưa có dữ liệu.
+        Cache,   ///< Nạp từ file cache trên đĩa (có thể đã cũ).
+        Network, ///< Vừa tải từ nguồn trực tuyến.
+    };
+    Q_ENUM(Source)
+
     OffsetsService(QUrl sourceUrl, QString cachePath, QObject *parent = nullptr);
 
     /// Nạp cache (offsets + phiên bản) từ đĩa; gọi một lần khi khởi động.
@@ -45,6 +54,11 @@ public:
     const OffsetMap &offsets() const { return offsets_; }
     /// Phiên bản Roblox mà offsets hiện tại thuộc về (rỗng nếu không biết).
     const QString &version() const { return version_; }
+    Source source() const { return source_; }
+    /// Thời điểm dữ liệu hiện tại được tải (mạng) hoặc được lưu (cache); không hợp lệ nếu chưa có.
+    const QDateTime &loadedAt() const { return loadedAt_; }
+    /// Lỗi của lần tải gần nhất; rỗng nếu lần gần nhất thành công (hoặc chưa tải lần nào).
+    const QString &lastError() const { return lastError_; }
     bool isEmpty() const { return offsets_.isEmpty(); }
     bool isRefreshing() const { return inFlight_; }
 
@@ -60,6 +74,9 @@ private:
     QString cachePath_;
     OffsetMap offsets_;
     QString version_;
+    Source source_ = Source::None;
+    QDateTime loadedAt_;
+    QString lastError_;
     QNetworkAccessManager *network_ = nullptr;
     QTimer autoTimer_;
     qint64 maxBodyBytes_ = 8 * 1024 * 1024;

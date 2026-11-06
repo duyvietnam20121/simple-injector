@@ -1,6 +1,8 @@
 #include "title_bar.h"
 
+#include <QCoreApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QMainWindow>
 #include <QMouseEvent>
@@ -13,7 +15,16 @@ TitleBar::TitleBar(QMainWindow *window) : QWidget(window), window_(window)
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(12, 5, 8, 5);
 
-    auto *label = new QLabel(QStringLiteral("SIMPLE INJECTOR"), this);
+    auto *icon = new QLabel(this);
+    icon->setPixmap(QIcon(QStringLiteral(":/icons/app.png")).pixmap(18, 18));
+    icon->setFixedSize(18, 18);
+    icon->setScaledContents(true);
+    icon->setStyleSheet(QStringLiteral("border:none;background:transparent;"));
+
+    const QString version = QCoreApplication::applicationVersion();
+    auto *label = new QLabel(version.isEmpty() ? QStringLiteral("SIMPLE INJECTOR")
+                                               : QStringLiteral("SIMPLE INJECTOR  ·  v%1").arg(version),
+                             this);
     label->setStyleSheet(QStringLiteral(
         "color:#B8B8B8;font-size:10px;font-weight:bold;letter-spacing:1px;border:none;"));
 
@@ -26,6 +37,8 @@ TitleBar::TitleBar(QMainWindow *window) : QWidget(window), window_(window)
             "QPushButton:hover{color:#FF5555;}"));
     }
 
+    layout->addWidget(icon);
+    layout->addSpacing(6);
     layout->addWidget(label);
     layout->addStretch();
     layout->addWidget(minimize);

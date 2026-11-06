@@ -5,12 +5,14 @@ name: Simple Injector - Windows Build and Tests
     branches: [main, master]
     paths:
       - "src/**"
+      - "resources/**"
       - "tests/**"
       - "CMakeLists.txt"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "src/**"
+      - "resources/**"
       - "tests/**"
       - "CMakeLists.txt"
       - ".github/workflows/ci.yml"
