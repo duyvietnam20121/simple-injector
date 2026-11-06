@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 #include <optional>
@@ -23,6 +24,12 @@ QString cleanPrefix(QString name);
 ///   2. tên đã gỡ một tiền tố kiểu.
 /// Trả về std::nullopt nếu không có.
 std::optional<quintptr> lookupOffset(const QHash<QString, quintptr> &offsets, const QString &flagName);
+
+/// Gợi ý tối đa `limit` tên TRONG BẢNG OFFSETS gần giống `flagName`, dùng khi không tra ra offset.
+/// Thứ tự ưu tiên: khác nhau chỉ ở hoa/thường; khác nhau chỉ ở số cuối (ví dụ `Foo2` và `Foo3`);
+/// một tên chứa tên kia (tên ngắn nhất 6 ký tự). Không trả về chính tên đã nhập.
+QStringList suggestOffsetNames(const QHash<QString, quintptr> &offsets, const QString &flagName,
+                               int limit = 3);
 
 /// Chuyển giá trị JSON (string / bool / number) sang dạng văn bản có thể sửa.
 /// Đặt *ok = false nếu kiểu JSON không được hỗ trợ (null, array, object).

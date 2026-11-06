@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QVector>
 
+#include <algorithm>
 #include <limits>
 
 namespace SimpleInjector {
@@ -52,6 +53,71 @@ std::optional<quintptr> lookupOffset(const QHash<QString, quintptr> &offsets, co
             return stripped.value();
     }
     return std::nullopt;
+}
+
+namespace {
+
+QString withoutTrailingDigits(QString text)
+{
+    while (!text.isEmpty() && text.back().isDigit())
+        text.chop(1);
+    return text;
+}
+
+} // namespace
+
+QStringList suggestOffsetNames(const QHash<QString, quintptr> &offsets, const QString &flagName, int limit)
+{
+    const QString original = flagName.trimmed();
+    const QString bare = cleanPrefix(original).toLower();
+    if (bare.isEmpty() || limit <= 0)
+        return {};
+    const QString stem = withoutTrailingDigits(bare);
+
+    struct Candidate {
+        int score;
+        qsizetype lengthDelta;
+        QString name;
+    };
+    QVector<Candidate> found;
+
+    for (auto it = offsets.cbegin(); it != offsets.cend(); ++it) {
+        const QString &key = it.key();
+        if (key == original || key == cleanPrefix(original))
+            continue; // đây chính là tên đã nhập (lẽ ra đã tra ra)
+        const QString lower = key.toLower();
+
+        int score = -1;
+        if (lower == bare)
+            score = 0;
+        else if (!stem.isEmpty() && withoutTrailingDigits(lower) == stem)
+            score = 1;
+        else if (bare.size() >= 6 && lower.size() >= 6
+                 && (lower.contains(bare) || bare.contains(lower)))
+            score = 2;
+        if (score < 0)
+            continue;
+
+        found.append({score, qAbs(lower.size() - bare.size()), key});
+    }
+
+    std::sort(found.begin(), found.end(), [](const Candidate &a, const Candidate &b) {
+        if (a.score != b.score)
+            return a.score < b.score;
+        if (a.lengthDelta != b.lengthDelta)
+            return a.lengthDelta < b.lengthDelta;
+        return a.name < b.name;
+    });
+
+    QStringList result;
+    for (const Candidate &candidate : std::as_const(found)) {
+        if (result.size() >= limit)
+            break;
+        // Tên nguyên văn và bản đã gỡ tiền tố của cùng một mục không cần gợi ý hai lần.
+        if (!result.contains(candidate.name))
+            result.append(candidate.name);
+    }
+    return result;
 }
 
 QString jsonValueToString(const QJsonValue &value, bool *ok)
