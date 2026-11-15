@@ -13,13 +13,14 @@ class FlagStore;
 
 /// Mô hình bảng ba cột (Tên, Giá trị, Trạng thái) trên FlagStore. Cột giá trị sửa được.
 ///
-/// Cột Trạng thái cho biết TỪNG flag: chưa biết / sẵn sàng / đã áp dụng / không có offset /
-/// giá trị không hỗ trợ / ghi nhưng đọc lại không khớp / lỗi ghi. Trước khi Apply, trạng thái được
-/// dự đoán từ bảng offsets (previewFlag); sau Apply, trạng thái là kết quả thực tế.
+/// Cột Trạng thái chỉ có ba trạng thái dễ hiểu cho TỪNG flag:
+///   "— Chưa áp dụng" (chưa Apply, hoặc vừa sửa giá trị), "✓ Đã áp dụng", "✗ Không áp dụng".
+/// Lý do chi tiết (thiếu offset, sai kiểu giá trị, đọc lại không khớp...) vẫn nằm trong ApplyReport
+/// nhưng không hiển thị trong bảng.
 ///
-/// Model không sở hữu store hay bảng offsets. Khi store bị thay đổi từ bên ngoài (thêm/xóa),
-/// gọi reload(); khi người dùng sửa giá trị, model tự cập nhật store, xóa kết quả Apply cũ của
-/// flag đó (vì giá trị đã đổi) rồi phát valueEdited() để nơi gọi lưu xuống đĩa.
+/// Model không sở hữu store. Khi store bị thay đổi từ bên ngoài (thêm/xóa), gọi reload(); khi người
+/// dùng sửa giá trị, model tự cập nhật store, xóa kết quả Apply cũ của flag đó (vì giá trị đã đổi)
+/// rồi phát valueEdited() để nơi gọi lưu xuống đĩa.
 class FlagTableModel final : public QAbstractTableModel {
     Q_OBJECT
 
@@ -33,11 +34,6 @@ public:
 
     explicit FlagTableModel(FlagStore *store, QObject *parent = nullptr);
 
-    /// Bảng offsets dùng để dự đoán trạng thái; con trỏ phải sống lâu hơn model (có thể null).
-    void setOffsets(const OffsetMap *offsets);
-    /// Báo rằng bảng offsets đã đổi nội dung: tính lại cột Trạng thái.
-    void refreshStatuses();
-
     /// Ghi nhận kết quả của một lần Apply (thay thế kết quả cũ).
     void setApplyResults(const QHash<QString, FlagResult> &results);
     void clearApplyResults();
@@ -47,7 +43,7 @@ public:
 
     QString nameAt(int row) const;
     FlagStatus statusAt(int row) const;
-    /// Số flag đang ở trạng thái "có vấn đề" (xem isProblem()).
+    /// Số flag đã Apply nhưng không áp dụng được (xem isProblem()).
     int problemCount() const;
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -61,6 +57,8 @@ public:
 
     /// Chữ hiển thị ngắn cho một trạng thái (kèm ký hiệu).
     static QString statusText(FlagStatus status);
+    /// Trạng thái hiển thị chưa Apply lần nào / vừa sửa giá trị.
+    static bool isPending(FlagStatus status);
 
 signals:
     /// Phát sau khi một giá trị thực sự đã đổi trong store.
@@ -68,17 +66,15 @@ signals:
 
 private:
     FlagResult resultFor(const QString &name) const;
-    QString tooltipFor(const QString &name) const; ///< Chi tiết + gợi ý tên gần giống nếu thiếu offset.
     void emitStatusChanged();
 
     FlagStore *store_ = nullptr;
-    const OffsetMap *offsets_ = nullptr;
     QStringList names_; // đã sắp xếp theo tên (thứ tự khóa của QJsonObject)
     QHash<QString, FlagResult> applyResults_;
 };
 
 /// Proxy sắp xếp + lọc: lọc văn bản trên mọi cột (kể cả chữ trạng thái) và tùy chọn
-/// "chỉ hiện flag có vấn đề".
+/// "chỉ hiện flag không áp dụng".
 class FlagFilterProxyModel final : public QSortFilterProxyModel {
     Q_OBJECT
 

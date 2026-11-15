@@ -74,7 +74,6 @@ MainWindow::MainWindow()
     monitor_ = new ProcessMonitor(&process_, kMonitorIntervalMs, this);
 
     model_ = new FlagTableModel(&flags_, this);
-    model_->setOffsets(&offsets_->offsets()); // để dự đoán trạng thái từng flag trước khi Apply
     proxy_ = new FlagFilterProxyModel(this);
     proxy_->setSourceModel(model_);
 
@@ -149,7 +148,7 @@ void MainWindow::buildUi()
     search_ = new QLineEdit(this);
     search_->setPlaceholderText(QStringLiteral("Tìm theo tên, giá trị hoặc trạng thái..."));
     search_->setClearButtonEnabled(true);
-    problemsOnlyCheck_ = new QCheckBox(QStringLiteral("Chỉ hiện flag có vấn đề"), this);
+    problemsOnlyCheck_ = new QCheckBox(QStringLiteral("Chỉ hiện flag không áp dụng"), this);
 
     auto *filterRow = new QHBoxLayout();
     filterRow->addWidget(search_, 1);
@@ -175,7 +174,7 @@ void MainWindow::buildUi()
     header->resizeSection(FlagTableModel::StatusColumn, 190);
     content->addWidget(table_, 1);
 
-    auto *hint = new QLabel(QStringLiteral("Nhấp đúp (hoặc F2) cột VALUE để sửa · rê chuột vào NAME/STATUS để xem lý do · Delete để xóa"), this);
+    auto *hint = new QLabel(QStringLiteral("Nhấp đúp (hoặc F2) cột VALUE để sửa · Delete để xóa"), this);
     hint->setStyleSheet(QStringLiteral("color:#555;font-size:10px;border:none;"));
     content->addWidget(hint);
 
@@ -353,11 +352,8 @@ void MainWindow::applyAll(bool interactive)
         applyFlags(flags_.entries(), offsets_->offsets(), process_.imageBase(), process_);
     model_->setApplyResults(report.results);
 
-    const int problems = report.verifyFailed + report.missingOffset + report.invalidValue + report.writeFailed;
-    QString message = report.summary();
-    if (problems > 0)
-        message += QStringLiteral(" · xem cột STATUS để biết flag nào lỗi");
-    setStatus(message, report.applied > 0 && report.verifyFailed == 0);
+    const bool allApplied = report.total() > 0 && report.applied == report.total();
+    setStatus(report.summary(), allApplied);
 }
 
 // ---- Phản hồi từ service ---------------------------------------------------
@@ -391,7 +387,6 @@ void MainWindow::onProcessStatusChanged(const ProcessStatus &status)
 
 void MainWindow::onOffsetsFinished(OffsetsService::Outcome outcome, const QString &detail)
 {
-    model_->refreshStatuses(); // bảng offsets có thể đã đổi: tính lại dự đoán từng flag
     updateOffsetsLabel();
     updateVersionLabel();
     updateControls();
@@ -436,7 +431,7 @@ void MainWindow::updateCount()
     QString text = QStringLiteral("Flags đã lưu: %1  ·  Đang hiển thị: %2")
                        .arg(flags_.size()).arg(proxy_->rowCount());
     if (problems > 0)
-        text += QStringLiteral("  ·  Không áp dụng được: %1").arg(problems);
+        text += QStringLiteral("  ·  Không áp dụng: %1").arg(problems);
     countLabel_->setText(text);
     updateControls();
 }

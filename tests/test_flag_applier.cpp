@@ -72,7 +72,7 @@ private slots:
         const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
         QCOMPARE(report.applied, 0);
         QCOMPARE(report.verifyFailed, 1);
-        QVERIFY(report.summary().contains(QStringLiteral("không khớp")));
+        QCOMPARE(report.summary(), QStringLiteral("Đã áp dụng 0/1 flag · 1 không áp dụng"));
     }
 
     void unreadableMemoryCountsAsVerifyFailure()
@@ -181,6 +181,19 @@ private slots:
         QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("hello"), offsets).status, FlagStatus::InvalidValue);
         QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("99999999999"), offsets).status, FlagStatus::InvalidValue);
         QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("1"), {}).status, FlagStatus::Unknown);
+    }
+
+    void summaryIsShortAndClear()
+    {
+        ApplyReport all;
+        all.applied = 3;
+        QCOMPARE(all.summary(), QStringLiteral("Đã áp dụng 3/3 flag"));
+
+        ApplyReport mixed;
+        mixed.applied = 2;
+        mixed.missingOffset = 1;
+        mixed.invalidValue = 1;
+        QCOMPARE(mixed.summary(), QStringLiteral("Đã áp dụng 2/4 flag · 2 không áp dụng"));
     }
 
     void isProblemClassification()

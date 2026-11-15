@@ -61,14 +61,10 @@ FlagResult previewFlag(const QString &name, const QString &value, const OffsetMa
 
 QString ApplyReport::summary() const
 {
-    QString text = QStringLiteral("Đã xong · %1 ghi và xác nhận").arg(applied);
-    if (verifyFailed > 0)
-        text += QStringLiteral(" · %1 ghi nhưng đọc lại không khớp (offset có thể đã cũ)").arg(verifyFailed);
-    text += QStringLiteral(" · %1 thiếu offset · %2 giá trị không hỗ trợ · %3 lỗi ghi")
-                .arg(missingOffset)
-                .arg(invalidValue)
-                .arg(writeFailed);
-    return text;
+    const int notApplied = total() - applied;
+    return notApplied == 0
+        ? QStringLiteral("Đã áp dụng %1/%1 flag").arg(applied)
+        : QStringLiteral("Đã áp dụng %1/%2 flag · %3 không áp dụng").arg(applied).arg(total()).arg(notApplied);
 }
 
 ApplyReport applyFlags(const QJsonObject &flags,

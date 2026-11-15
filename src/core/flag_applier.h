@@ -22,7 +22,7 @@ public:
     virtual bool readInt32(quintptr address, qint32 *out) = 0;
 };
 
-/// Trạng thái của TỪNG flag, để người dùng biết chính xác flag nào áp dụng được và vì sao không.
+/// Trạng thái chi tiết của TỪNG flag sau một lần Apply (bảng chỉ hiển thị gộp: đã / không áp dụng).
 enum class FlagStatus {
     Unknown,       ///< Chưa biết (chưa có bảng offsets để đối chiếu).
     Ready,         ///< Có offset và giá trị hợp lệ, chưa Apply.

@@ -5,37 +5,26 @@
 
 #include <QColor>
 
+#include <iterator>
+
 namespace SimpleInjector {
 
 namespace {
 
-/// Thứ tự sắp xếp tăng dần: vấn đề nặng nhất lên đầu, "chưa biết" xuống cuối.
+/// Thứ tự sắp xếp tăng dần: "không áp dụng" lên đầu, rồi "chưa áp dụng", cuối cùng "đã áp dụng".
 int sortRank(FlagStatus status)
 {
-    switch (status) {
-    case FlagStatus::WriteFailed:    return 0;
-    case FlagStatus::VerifyFailed:   return 1;
-    case FlagStatus::MissingOffset:  return 2;
-    case FlagStatus::InvalidValue:   return 3;
-    case FlagStatus::Ready:          return 4;
-    case FlagStatus::Applied:        return 5;
-    case FlagStatus::Unknown:        return 6;
-    }
-    return 6;
+    if (status == FlagStatus::Applied)
+        return 2;
+    return FlagTableModel::isPending(status) ? 1 : 0;
 }
 
 QColor statusColor(FlagStatus status)
 {
-    switch (status) {
-    case FlagStatus::Applied:       return QColor(0x61, 0xD7, 0x86); // xanh lá
-    case FlagStatus::Ready:         return QColor(0xA8, 0xA8, 0xAE); // xám sáng
-    case FlagStatus::VerifyFailed:  return QColor(0xFF, 0xB3, 0x47); // cam
-    case FlagStatus::MissingOffset:
-    case FlagStatus::InvalidValue:
-    case FlagStatus::WriteFailed:   return QColor(0xFF, 0x66, 0x66); // đỏ
-    case FlagStatus::Unknown:       return QColor(0x66, 0x66, 0x6B); // xám tối
-    }
-    return {};
+    if (status == FlagStatus::Applied)
+        return QColor(0x61, 0xD7, 0x86); // xanh lá
+    return FlagTableModel::isPending(status) ? QColor(0x8A, 0x8A, 0x90)  // xám
+                                             : QColor(0xFF, 0x66, 0x66); // đỏ
 }
 
 } // namespace
@@ -46,29 +35,16 @@ FlagTableModel::FlagTableModel(FlagStore *store, QObject *parent)
     names_ = store_->entries().keys();
 }
 
+bool FlagTableModel::isPending(FlagStatus status)
+{
+    return status == FlagStatus::Unknown || status == FlagStatus::Ready;
+}
+
 QString FlagTableModel::statusText(FlagStatus status)
 {
-    switch (status) {
-    case FlagStatus::Unknown:       return QStringLiteral("— chưa rõ");
-    case FlagStatus::Ready:         return QStringLiteral("● Sẵn sàng");
-    case FlagStatus::Applied:       return QStringLiteral("✓ Đã áp dụng");
-    case FlagStatus::VerifyFailed:  return QStringLiteral("⚠ Không khớp khi đọc lại");
-    case FlagStatus::MissingOffset: return QStringLiteral("✗ Không có offset");
-    case FlagStatus::InvalidValue:  return QStringLiteral("✗ Giá trị không hỗ trợ");
-    case FlagStatus::WriteFailed:   return QStringLiteral("✗ Lỗi ghi");
-    }
-    return {};
-}
-
-void FlagTableModel::setOffsets(const OffsetMap *offsets)
-{
-    offsets_ = offsets;
-    emitStatusChanged();
-}
-
-void FlagTableModel::refreshStatuses()
-{
-    emitStatusChanged();
+    if (status == FlagStatus::Applied)
+        return QStringLiteral("✓ Đã áp dụng");
+    return isPending(status) ? QStringLiteral("— Chưa áp dụng") : QStringLiteral("✗ Không áp dụng");
 }
 
 void FlagTableModel::setApplyResults(const QHash<QString, FlagResult> &results)
@@ -103,24 +79,7 @@ QString FlagTableModel::nameAt(int row) const
 FlagResult FlagTableModel::resultFor(const QString &name) const
 {
     const auto applied = applyResults_.constFind(name);
-    if (applied != applyResults_.cend())
-        return applied.value();
-
-    static const OffsetMap kNoOffsets;
-    return previewFlag(name, jsonValueToString(store_->entries().value(name)),
-                       offsets_ ? *offsets_ : kNoOffsets);
-}
-
-QString FlagTableModel::tooltipFor(const QString &name) const
-{
-    const FlagResult result = resultFor(name);
-    if (result.status != FlagStatus::MissingOffset || !offsets_ || offsets_->isEmpty())
-        return result.detail;
-
-    const QStringList hints = suggestOffsetNames(*offsets_, name);
-    if (hints.isEmpty())
-        return result.detail;
-    return result.detail + QStringLiteral("\nGợi ý gần giống trong bảng offsets: ") + hints.join(QStringLiteral(", "));
+    return applied != applyResults_.cend() ? applied.value() : FlagResult{FlagStatus::Unknown, QString()};
 }
 
 FlagStatus FlagTableModel::statusAt(int row) const
@@ -166,7 +125,6 @@ QVariant FlagTableModel::data(const QModelIndex &index, int role) const
         const FlagResult result = resultFor(name);
         switch (role) {
         case Qt::DisplayRole:    return statusText(result.status);
-        case Qt::ToolTipRole:    return tooltipFor(name);
         case Qt::ForegroundRole: return statusColor(result.status);
         case StatusRole:         return static_cast<int>(result.status);
         case SortRole:           return sortRank(result.status);
@@ -181,9 +139,7 @@ QVariant FlagTableModel::data(const QModelIndex &index, int role) const
     case SortRole:
         return index.column() == NameColumn ? name : value;
     case Qt::ToolTipRole:
-        if (index.column() == NameColumn)
-            return tooltipFor(name);
-        return QStringLiteral("Nhấp đúp hoặc F2 để sửa giá trị");
+        return index.column() == ValueColumn ? QStringLiteral("Nhấp đúp hoặc F2 để sửa giá trị") : QVariant();
     default:
         return {};
     }
