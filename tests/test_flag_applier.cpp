@@ -1,5 +1,5 @@
-#include "core/flag_applier.h"
-#include "core/flag_utils.h"
+#include "core/apply/flag_applier.h"
+#include "core/offsets/offsets_header_parser.h"
 
 #include <QMap>
 #include <QSet>
@@ -11,9 +11,9 @@ using namespace SimpleInjector;
 
 namespace {
 
-/// Bộ nhớ giả. Có thể giả lập: ghi thất bại, game ghi đè giá trị (ghi OK nhưng đọc ra khác),
-/// hoặc vùng nhớ không đọc được.
-class FakeWriter final : public IMemoryWriter {
+/// Fake process memory. It can simulate: a failing write, the game overwriting a value (the
+/// write reports success but the read-back differs), and unreadable memory.
+class FakeMemory final : public IProcessMemory {
 public:
     bool writeInt32(quintptr address, qint32 value) override
     {
@@ -34,7 +34,7 @@ public:
 
     QMap<quintptr, qint32> memory;
     QSet<quintptr> failingWrites;
-    QSet<quintptr> ignoredWrites; ///< Ghi báo OK nhưng giá trị không đổi (offset sai / bị ghi đè).
+    QSet<quintptr> ignoredWrites; ///< The write reports success but the value does not change.
     QSet<quintptr> unreadable;
 };
 
@@ -46,50 +46,50 @@ class FlagApplierTests final : public QObject {
 private slots:
     void writesAtImageBasePlusOffsetAndVerifies()
     {
-        FakeWriter writer;
+        FakeMemory memory;
         const OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}, {QStringLiteral("Beta"), 0x20}};
         QJsonObject flags;
         flags.insert(QStringLiteral("Alpha"), QStringLiteral("true"));
         flags.insert(QStringLiteral("Beta"), QStringLiteral("-7"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
-        QCOMPARE(report.applied, 2);
-        QCOMPARE(report.verifyFailed, 0);
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, memory);
+        QCOMPARE(report.applied(), 2);
+        QCOMPARE(report.failed(), 0);
         QCOMPARE(report.total(), 2);
-        QCOMPARE(writer.memory.value(0x1010), qint32(1));
-        QCOMPARE(writer.memory.value(0x1020), qint32(-7));
+        QCOMPARE(memory.memory.value(0x1010), qint32(1));
+        QCOMPARE(memory.memory.value(0x1020), qint32(-7));
     }
 
-    void readBackMismatchIsReportedSeparately()
+    void readBackMismatchIsAFailure()
     {
-        FakeWriter writer;
-        writer.ignoredWrites.insert(0x1000 + 0x10);
-        writer.memory.insert(0x1000 + 0x10, 99); // giá trị cũ còn nguyên
+        FakeMemory memory;
+        memory.ignoredWrites.insert(0x1000 + 0x10);
+        memory.memory.insert(0x1000 + 0x10, 99); // the old value stays
         const OffsetMap offsets{{QStringLiteral("Stale"), 0x10}};
         QJsonObject flags;
         flags.insert(QStringLiteral("Stale"), QStringLiteral("1"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
-        QCOMPARE(report.applied, 0);
-        QCOMPARE(report.verifyFailed, 1);
-        QCOMPARE(report.summary(), QStringLiteral("Đã áp dụng 0/1 flag · 1 không áp dụng"));
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, memory);
+        QCOMPARE(report.applied(), 0);
+        QCOMPARE(report.count(FlagStatus::VerifyFailed), 1);
+        QCOMPARE(report.summary(), QStringLiteral("Applied 0/1 flags · 1 failed"));
     }
 
     void unreadableMemoryCountsAsVerifyFailure()
     {
-        FakeWriter writer;
-        writer.unreadable.insert(0x1000 + 0x10);
+        FakeMemory memory;
+        memory.unreadable.insert(0x1000 + 0x10);
         const OffsetMap offsets{{QStringLiteral("Hidden"), 0x10}};
         QJsonObject flags;
         flags.insert(QStringLiteral("Hidden"), QStringLiteral("1"));
 
-        QCOMPARE(applyFlags(flags, offsets, 0x1000, writer).verifyFailed, 1);
+        QCOMPARE(applyFlags(flags, offsets, 0x1000, memory).count(FlagStatus::VerifyFailed), 1);
     }
 
     void classifiesEveryFailureSeparately()
     {
-        FakeWriter writer;
-        writer.failingWrites.insert(0x1000 + 0x30);
+        FakeMemory memory;
+        memory.failingWrites.insert(0x1000 + 0x30);
         const OffsetMap offsets{
             {QStringLiteral("Ok"), 0x10},
             {QStringLiteral("Text"), 0x20},
@@ -101,20 +101,21 @@ private slots:
         flags.insert(QStringLiteral("Text"), QStringLiteral("not a number"));
         flags.insert(QStringLiteral("Denied"), QStringLiteral("1"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
-        QCOMPARE(report.applied, 1);
-        QCOMPARE(report.missingOffset, 1);
-        QCOMPARE(report.invalidValue, 1);
-        QCOMPARE(report.writeFailed, 1);
-        QCOMPARE(report.verifyFailed, 0);
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, memory);
+        QCOMPARE(report.applied(), 1);
+        QCOMPARE(report.count(FlagStatus::MissingOffset), 1);
+        QCOMPARE(report.count(FlagStatus::InvalidValue), 1);
+        QCOMPARE(report.count(FlagStatus::WriteFailed), 1);
+        QCOMPARE(report.count(FlagStatus::VerifyFailed), 0);
+        QCOMPARE(report.failed(), 3);
     }
 
     void perFlagResultsExplainEachOutcome()
     {
-        FakeWriter writer;
-        writer.failingWrites.insert(0x1000 + 0x30);
-        writer.ignoredWrites.insert(0x1000 + 0x40);
-        writer.memory.insert(0x1000 + 0x40, 9);
+        FakeMemory memory;
+        memory.failingWrites.insert(0x1000 + 0x30);
+        memory.ignoredWrites.insert(0x1000 + 0x40);
+        memory.memory.insert(0x1000 + 0x40, 9);
         const OffsetMap offsets{
             {QStringLiteral("Ok"), 0x10},
             {QStringLiteral("Text"), 0x20},
@@ -128,7 +129,7 @@ private slots:
         flags.insert(QStringLiteral("Denied"), QStringLiteral("1"));
         flags.insert(QStringLiteral("Stale"), QStringLiteral("1"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, memory);
 
         QCOMPARE(report.results.size(), 5);
         QCOMPARE(report.results.value(QStringLiteral("Ok")).status, FlagStatus::Applied);
@@ -139,14 +140,25 @@ private slots:
 
         for (const FlagResult &result : report.results)
             QVERIFY(!result.detail.isEmpty());
-        QVERIFY(report.results.value(QStringLiteral("Stale")).detail.contains(QStringLiteral("9"))); // giá trị đọc lại
+        QVERIFY(report.results.value(QStringLiteral("Stale")).detail.contains(QStringLiteral("9"))); // the value read back
         QVERIFY(report.results.value(QStringLiteral("NoOffset")).detail.contains(QStringLiteral("NoOffset")));
         QVERIFY(report.results.value(QStringLiteral("Text")).detail.contains(QStringLiteral("abc")));
     }
 
+    void emptyOffsetsTableFailsEveryFlagAsMissingOffset()
+    {
+        FakeMemory memory;
+        QJsonObject flags;
+        flags.insert(QStringLiteral("Alpha"), QStringLiteral("1"));
+
+        const ApplyReport report = applyFlags(flags, {}, 0x1000, memory);
+        QCOMPARE(report.count(FlagStatus::MissingOffset), 1);
+        QVERIFY(report.results.value(QStringLiteral("Alpha")).detail.contains(QStringLiteral("empty")));
+    }
+
     void flagsWithLowercaseNamesAndVerbatimPrefixedNamesAreFound()
     {
-        FakeWriter writer;
+        FakeMemory memory;
         const OffsetMap offsets = parseOffsetsHeader(QStringLiteral(
             "inline constexpr std::uintptr_t kCageHoleNum = 0x10;\n"
             "inline constexpr std::uintptr_t FFlagMigrateCameraFovDatamodel = 0x20;\n"));
@@ -156,84 +168,77 @@ private slots:
         flags.insert(QStringLiteral("FFlagMigrateCameraFovDatamodel"), QStringLiteral("true"));
         flags.insert(QStringLiteral("MigrateCameraFovDatamodel"), QStringLiteral("true"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x1000, writer);
-        QCOMPARE(report.applied, 4);
-        QCOMPARE(report.missingOffset, 0);
+        const ApplyReport report = applyFlags(flags, offsets, 0x1000, memory);
+        QCOMPARE(report.applied(), 4);
+        QCOMPARE(report.count(FlagStatus::MissingOffset), 0);
     }
 
     void resultsAreKeyedByOriginalFlagName()
     {
-        FakeWriter writer;
+        FakeMemory memory;
         const OffsetMap offsets{{QStringLiteral("Alpha"), 0x8}};
         QJsonObject flags;
         flags.insert(QStringLiteral("FFlagAlpha"), QStringLiteral("1"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x100, writer);
+        const ApplyReport report = applyFlags(flags, offsets, 0x100, memory);
         QVERIFY(report.results.contains(QStringLiteral("FFlagAlpha")));
-    }
-
-    void previewMatchesWhatApplyWouldDecide()
-    {
-        const OffsetMap offsets{{QStringLiteral("Alpha"), 0x10}};
-        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("true"), offsets).status, FlagStatus::Ready);
-        QCOMPARE(previewFlag(QStringLiteral("FFlagAlpha"), QStringLiteral("0x7"), offsets).status, FlagStatus::Ready);
-        QCOMPARE(previewFlag(QStringLiteral("Beta"), QStringLiteral("1"), offsets).status, FlagStatus::MissingOffset);
-        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("hello"), offsets).status, FlagStatus::InvalidValue);
-        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("99999999999"), offsets).status, FlagStatus::InvalidValue);
-        QCOMPARE(previewFlag(QStringLiteral("Alpha"), QStringLiteral("1"), {}).status, FlagStatus::Unknown);
     }
 
     void summaryIsShortAndClear()
     {
         ApplyReport all;
-        all.applied = 3;
-        QCOMPARE(all.summary(), QStringLiteral("Đã áp dụng 3/3 flag"));
+        all.results.insert(QStringLiteral("A"), {FlagStatus::Applied, {}});
+        all.results.insert(QStringLiteral("B"), {FlagStatus::Applied, {}});
+        all.results.insert(QStringLiteral("C"), {FlagStatus::Applied, {}});
+        QCOMPARE(all.summary(), QStringLiteral("Applied 3/3 flags"));
 
         ApplyReport mixed;
-        mixed.applied = 2;
-        mixed.missingOffset = 1;
-        mixed.invalidValue = 1;
-        QCOMPARE(mixed.summary(), QStringLiteral("Đã áp dụng 2/4 flag · 2 không áp dụng"));
+        mixed.results.insert(QStringLiteral("A"), {FlagStatus::Applied, {}});
+        mixed.results.insert(QStringLiteral("B"), {FlagStatus::Applied, {}});
+        mixed.results.insert(QStringLiteral("C"), {FlagStatus::MissingOffset, {}});
+        mixed.results.insert(QStringLiteral("D"), {FlagStatus::InvalidValue, {}});
+        QCOMPARE(mixed.summary(), QStringLiteral("Applied 2/4 flags · 2 failed"));
     }
 
-    void isProblemClassification()
+    void isFailedClassification()
     {
-        QVERIFY(isProblem(FlagStatus::MissingOffset));
-        QVERIFY(isProblem(FlagStatus::InvalidValue));
-        QVERIFY(isProblem(FlagStatus::VerifyFailed));
-        QVERIFY(isProblem(FlagStatus::WriteFailed));
-        QVERIFY(!isProblem(FlagStatus::Unknown));
-        QVERIFY(!isProblem(FlagStatus::Ready));
-        QVERIFY(!isProblem(FlagStatus::Applied));
+        QVERIFY(isFailed(FlagStatus::MissingOffset));
+        QVERIFY(isFailed(FlagStatus::InvalidValue));
+        QVERIFY(isFailed(FlagStatus::VerifyFailed));
+        QVERIFY(isFailed(FlagStatus::WriteFailed));
+        QVERIFY(!isFailed(FlagStatus::Pending));
+        QVERIFY(!isFailed(FlagStatus::Applied));
     }
 
     void prefixedFlagNamesStillMatchOffsets()
     {
-        FakeWriter writer;
+        FakeMemory memory;
         const OffsetMap offsets{{QStringLiteral("Alpha"), 0x8}};
         QJsonObject flags;
         flags.insert(QStringLiteral("FFlagAlpha"), QStringLiteral("1"));
 
-        QCOMPARE(applyFlags(flags, offsets, 0x100, writer).applied, 1);
+        QCOMPARE(applyFlags(flags, offsets, 0x100, memory).applied(), 1);
     }
 
     void rejectsAddressOverflow()
     {
-        FakeWriter writer;
+        FakeMemory memory;
         const quintptr max = std::numeric_limits<quintptr>::max();
         const OffsetMap offsets{{QStringLiteral("Big"), max}};
         QJsonObject flags;
         flags.insert(QStringLiteral("Big"), QStringLiteral("1"));
 
-        const ApplyReport report = applyFlags(flags, offsets, 0x10, writer);
-        QCOMPARE(report.writeFailed, 1);
-        QVERIFY(writer.memory.isEmpty());
+        const ApplyReport report = applyFlags(flags, offsets, 0x10, memory);
+        QCOMPARE(report.count(FlagStatus::WriteFailed), 1);
+        QVERIFY(memory.memory.isEmpty());
     }
 
     void emptyInputProducesEmptyReport()
     {
-        FakeWriter writer;
-        QCOMPARE(applyFlags({}, {}, 0x1000, writer).total(), 0);
+        FakeMemory memory;
+        const ApplyReport report = applyFlags({}, {}, 0x1000, memory);
+        QCOMPARE(report.total(), 0);
+        QCOMPARE(report.summary(), QStringLiteral("Applied 0/0 flags"));
     }
 };
 

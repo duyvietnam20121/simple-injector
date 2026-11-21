@@ -8,7 +8,7 @@ using namespace SimpleInjector;
 
 namespace {
 
-/// Probe giả: trả lần lượt các trạng thái đã xếp hàng; hết hàng thì lặp lại trạng thái cuối.
+/// Fake probe: returns the queued statuses in order, then repeats the last one.
 class FakeProbe final : public IProcessProbe {
 public:
     ProcessStatus refresh() override
@@ -83,7 +83,7 @@ private slots:
 
         monitor.checkNow(); // not running
         monitor.checkNow(); // connected
-        monitor.checkNow(); // vẫn connected, cùng trạng thái
+        monitor.checkNow(); // still connected, same status
         monitor.checkNow();
 
         QCOMPARE(attached.count(), 1);
@@ -161,7 +161,7 @@ private slots:
         ProcessMonitor monitor(&probe, 20);
 
         monitor.start();
-        QCOMPARE(probe.refreshCalls, 1); // kiểm tra ngay khi start
+        QCOMPARE(probe.refreshCalls, 1); // checks immediately on start
         QTRY_VERIFY_WITH_TIMEOUT(probe.refreshCalls >= 4, 3000);
 
         monitor.stop();

@@ -7,12 +7,12 @@ class QPlainTextEdit;
 
 namespace SimpleInjector::Ui {
 
-/// Hộp thoại dán JSON hoặc nhập từ file `.json`.
+/// Dialog for pasting JSON or importing it from a `.json` file.
 class AddFlagDialog final : public QDialog {
 public:
     explicit AddFlagDialog(QWidget *parent = nullptr);
 
-    /// Phân tích nội dung thành object; điền *error nếu sai.
+    /// Parses the text into an object; fills *error if it is invalid.
     QJsonObject flags(QString *error) const;
 
 private:

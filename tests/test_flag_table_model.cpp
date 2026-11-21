@@ -1,5 +1,6 @@
-#include "core/flag_store.h"
-#include "core/flag_table_model.h"
+#include "core/flags/flag_filter_proxy_model.h"
+#include "core/flags/flag_store.h"
+#include "core/flags/flag_table_model.h"
 
 #include <QAbstractItemModelTester>
 #include <QSignalSpy>
@@ -85,8 +86,8 @@ private slots:
         FlagTableModel model(&store);
         QSignalSpy edited(&model, &FlagTableModel::valueEdited);
 
-        QVERIFY(!model.setData(model.index(0, FlagTableModel::ValueColumn), QStringLiteral("   "))); // rỗng
-        QVERIFY(!model.setData(model.index(0, FlagTableModel::NameColumn), QStringLiteral("x")));    // sai cột
+        QVERIFY(!model.setData(model.index(0, FlagTableModel::ValueColumn), QStringLiteral("   "))); // empty
+        QVERIFY(!model.setData(model.index(0, FlagTableModel::NameColumn), QStringLiteral("x")));    // wrong column
         QVERIFY(!model.setData(model.index(0, FlagTableModel::ValueColumn), QStringLiteral("x"), Qt::DisplayRole));
         QCOMPARE(edited.count(), 0);
         QCOMPARE(store.entries().value(QStringLiteral("Alpha")).toString(), QStringLiteral("true"));
@@ -120,7 +121,7 @@ private slots:
         QCOMPARE(model.nameAt(1), QStringLiteral("Beta"));
     }
 
-    // ---- Cột trạng thái: chỉ 3 trạng thái hiển thị ------------------------
+    // ---- Status column: only three displayed states ---------------------
 
     void statusIsPendingBeforeAnyApply()
     {
@@ -130,9 +131,9 @@ private slots:
 
         for (int row = 0; row < model.rowCount(); ++row) {
             QCOMPARE(model.index(row, FlagTableModel::StatusColumn).data().toString(),
-                     QStringLiteral("— Chưa áp dụng"));
+                     QStringLiteral("— Pending"));
         }
-        QCOMPARE(model.problemCount(), 0);
+        QCOMPARE(model.failedCount(), 0);
     }
 
     void applyResultsMapToAppliedOrNotApplied()
@@ -148,15 +149,15 @@ private slots:
         model.setApplyResults(results);
 
         auto text = [&](int row) { return model.index(row, FlagTableModel::StatusColumn).data().toString(); };
-        QCOMPARE(text(0), QStringLiteral("✓ Đã áp dụng"));
-        QCOMPARE(text(1), QStringLiteral("✗ Không áp dụng"));
-        QCOMPARE(text(2), QStringLiteral("✗ Không áp dụng")); // mọi nguyên nhân thất bại đều gộp một nhãn
-        QCOMPARE(model.problemCount(), 2);
+        QCOMPARE(text(0), QStringLiteral("✓ Applied"));
+        QCOMPARE(text(1), QStringLiteral("✗ Failed"));
+        QCOMPARE(text(2), QStringLiteral("✗ Failed")); // every failure reason shares one label
+        QCOMPARE(model.failedCount(), 2);
 
-        // Các lý do khác nhau vẫn phân biệt được qua StatusRole (không hiển thị trong bảng).
+        // The different reasons can still be told apart through StatusRole (not shown in the table).
         QCOMPARE(model.statusAt(1), FlagStatus::InvalidValue);
         QCOMPARE(model.statusAt(2), FlagStatus::MissingOffset);
-        // Không còn tooltip giải thích hay gợi ý tên ở cột trạng thái và cột tên.
+        // There are no explanatory tooltips or name suggestions on the status and name columns.
         QVERIFY(!model.index(2, FlagTableModel::StatusColumn).data(Qt::ToolTipRole).isValid());
         QVERIFY(!model.index(2, FlagTableModel::NameColumn).data(Qt::ToolTipRole).isValid());
     }
@@ -185,11 +186,11 @@ private slots:
         QHash<QString, FlagResult> results;
         results.insert(QStringLiteral("Alpha"), {FlagStatus::VerifyFailed, QString()});
         model.setApplyResults(results);
-        QCOMPARE(model.problemCount(), 1);
+        QCOMPARE(model.failedCount(), 1);
 
         model.clearApplyResults();
-        QCOMPARE(model.problemCount(), 0);
-        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Chưa áp dụng"));
+        QCOMPARE(model.failedCount(), 0);
+        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Pending"));
     }
 
     void editingValueDiscardsThatFlagsApplyResult()
@@ -205,8 +206,8 @@ private slots:
 
         QVERIFY(model.setData(model.index(0, FlagTableModel::ValueColumn), QStringLiteral("false"))); // Alpha
 
-        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Chưa áp dụng"));
-        QCOMPARE(model.index(2, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("✓ Đã áp dụng"));
+        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Pending"));
+        QCOMPARE(model.index(2, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("✓ Applied"));
     }
 
     void reloadKeepsResultsOnlyForSurvivingFlags()
@@ -223,15 +224,15 @@ private slots:
         store.remove({QStringLiteral("Zeta")});
         model.reload();
         QJsonObject again;
-        again.insert(QStringLiteral("Zeta"), 1); // thêm lại: không được "thừa hưởng" kết quả cũ
+        again.insert(QStringLiteral("Zeta"), 1); // re-added: must not "inherit" the old result
         store.merge(again);
         model.reload();
 
-        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("✓ Đã áp dụng"));
-        QCOMPARE(model.index(2, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Chưa áp dụng"));
+        QCOMPARE(model.index(0, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("✓ Applied"));
+        QCOMPARE(model.index(2, FlagTableModel::StatusColumn).data().toString(), QStringLiteral("— Pending"));
     }
 
-    void proxyNotAppliedOnlyAndStatusSort()
+    void proxyFailedOnlyAndStatusSort()
     {
         FlagStore store;
         store.merge(sampleFlags()); // Alpha, Mid, Zeta
@@ -242,22 +243,22 @@ private slots:
         QHash<QString, FlagResult> results;
         results.insert(QStringLiteral("Alpha"), {FlagStatus::Applied, QString()});
         results.insert(QStringLiteral("Zeta"), {FlagStatus::WriteFailed, QString()});
-        model.setApplyResults(results); // Mid: chưa áp dụng
+        model.setApplyResults(results); // Mid: pending
 
         QCOMPARE(proxy.rowCount(), 3);
-        proxy.setProblemsOnly(true);
-        QCOMPARE(proxy.rowCount(), 1); // chỉ Zeta "không áp dụng"
+        proxy.setFailedOnly(true);
+        QCOMPARE(proxy.rowCount(), 1); // only Zeta failed
         QCOMPARE(proxy.index(0, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Zeta"));
 
-        proxy.setProblemsOnly(false);
+        proxy.setFailedOnly(false);
         proxy.sort(FlagTableModel::StatusColumn, Qt::AscendingOrder);
-        // Không áp dụng (Zeta) -> chưa áp dụng (Mid) -> đã áp dụng (Alpha).
+        // Failed (Zeta) -> pending (Mid) -> applied (Alpha).
         QCOMPARE(proxy.index(0, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Zeta"));
         QCOMPARE(proxy.index(1, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Mid"));
         QCOMPARE(proxy.index(2, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Alpha"));
 
-        // Gõ chữ trạng thái vào ô tìm kiếm cũng lọc được.
-        proxy.setFilterFixedString(QStringLiteral("Đã áp dụng"));
+        // Typing the status text into the search box filters as well.
+        proxy.setFilterFixedString(QStringLiteral("Applied"));
         QCOMPARE(proxy.rowCount(), 1);
         QCOMPARE(proxy.index(0, FlagTableModel::NameColumn).data().toString(), QStringLiteral("Alpha"));
     }
@@ -269,8 +270,8 @@ private slots:
         FlagTableModel model(&store);
         FlagFilterProxyModel proxy;
         proxy.setSourceModel(&model);
-        proxy.setProblemsOnly(true);
-        QCOMPARE(proxy.rowCount(), 0); // chưa Apply: chưa có gì "không áp dụng"
+        proxy.setFailedOnly(true);
+        QCOMPARE(proxy.rowCount(), 0); // nothing applied yet: nothing has failed
 
         QHash<QString, FlagResult> results;
         results.insert(QStringLiteral("Zeta"), {FlagStatus::WriteFailed, QString()});
@@ -292,7 +293,7 @@ private slots:
         proxy.setFilterFixedString(QStringLiteral("ALPHA"));
         QCOMPARE(proxy.rowCount(), 1);
 
-        proxy.setFilterFixedString(QStringLiteral("some TEXT")); // khớp theo giá trị
+        proxy.setFilterFixedString(QStringLiteral("some TEXT")); // matches by value
         QCOMPARE(proxy.rowCount(), 1);
         QCOMPARE(proxy.index(0, 0).data().toString(), QStringLiteral("Mid"));
 

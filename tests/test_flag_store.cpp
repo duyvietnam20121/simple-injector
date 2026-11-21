@@ -1,4 +1,4 @@
-#include "core/flag_store.h"
+#include "core/flags/flag_store.h"
 
 #include <QJsonArray>
 #include <QTemporaryDir>
@@ -33,7 +33,7 @@ private slots:
         incoming.insert(QStringLiteral("Good"), 1);
         incoming.insert(QStringLiteral("NullValue"), QJsonValue(QJsonValue::Null));
         incoming.insert(QStringLiteral("ArrayValue"), QJsonArray{1, 2});
-        incoming.insert(QStringLiteral("FFlag"), true); // tên rỗng sau khi bỏ tiền tố
+        incoming.insert(QStringLiteral("FFlag"), true); // empty name once the prefix is removed
 
         const auto result = store.merge(incoming);
         QCOMPARE(result.added, 1);

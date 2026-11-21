@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/app_storage.h"
-#include "core/flag_store.h"
-#include "core/roblox_version.h"
+#include "core/flags/flag_store.h"
+#include "core/io/app_storage.h"
+#include "core/offsets/roblox_version.h"
 #include "platform/process_probe.h"
 #include "platform/roblox_process.h"
 #include "services/offsets_service.h"
@@ -26,8 +26,8 @@ class ProcessMonitor;
 
 namespace SimpleInjector::Ui {
 
-/// Cửa sổ chính: điều phối kho flag, dịch vụ offsets và trình theo dõi Roblox.
-/// Không chứa logic nghiệp vụ; mọi quyết định nằm trong các lớp core/service.
+/// Main window: coordinates the flag store, the offsets service and the Roblox monitor.
+/// It holds no business logic; every decision lives in the core/service classes.
 class MainWindow final : public QMainWindow {
 public:
     MainWindow();
@@ -39,20 +39,21 @@ private:
     void buildUi();
     void connectSignals();
 
-    // Thao tác người dùng
+    // User actions
     void showAddDialog();
     void removeSelected();
     void exportFlags();
     void copySelected();
-    /// `interactive` = false khi do Auto Apply gọi: không hiện hộp thoại, gặp lệch phiên bản thì dừng.
+    /// `interactive` is false when called by Auto Apply: no dialogs, and a version mismatch
+    /// postpones the run instead of asking.
     void applyAll(bool interactive);
 
-    // Phản hồi từ service
+    // Reactions to services
     void onProcessStatusChanged(const ProcessStatus &status);
     void onOffsetsFinished(OffsetsService::Outcome outcome, const QString &detail);
     void onValueEdited(const QString &name, const QString &value);
 
-    // Hiển thị
+    // Display
     void updateCount();
     void updateOffsetsLabel();
     void updateVersionLabel();
@@ -72,7 +73,7 @@ private:
     FlagTableModel *model_ = nullptr;
     FlagFilterProxyModel *proxy_ = nullptr;
     QTimer searchDebounce_;
-    bool pendingAutoApply_ = false; ///< Auto Apply bị hoãn vì offsets lệch phiên bản, chờ bản mới.
+    bool pendingAutoApply_ = false; ///< Auto Apply postponed by a version mismatch, waiting for newer offsets.
 
     QLabel *statusLabel_ = nullptr;
     QLabel *offsetsLabel_ = nullptr;
@@ -80,7 +81,7 @@ private:
     QLabel *countLabel_ = nullptr;
     QLineEdit *search_ = nullptr;
     QTableView *table_ = nullptr;
-    QCheckBox *problemsOnlyCheck_ = nullptr;
+    QCheckBox *failedOnlyCheck_ = nullptr;
     QCheckBox *autoApplyCheck_ = nullptr;
     QPushButton *refreshOffsetsButton_ = nullptr;
     QPushButton *addButton_ = nullptr;

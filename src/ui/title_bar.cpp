@@ -1,4 +1,4 @@
-#include "title_bar.h"
+#include "ui/title_bar.h"
 
 #include <QCoreApplication>
 #include <QHBoxLayout>

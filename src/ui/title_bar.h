@@ -8,7 +8,7 @@ class QMouseEvent;
 
 namespace SimpleInjector::Ui {
 
-/// Thanh tiêu đề tự vẽ cho cửa sổ không viền: kéo để di chuyển, nút thu nhỏ/đóng.
+/// Custom title bar for the frameless window: drag to move, minimize and close buttons.
 class TitleBar final : public QWidget {
 public:
     explicit TitleBar(QMainWindow *window);

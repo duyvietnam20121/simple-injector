@@ -4,7 +4,7 @@
 
 namespace SimpleInjector::Ui {
 
-/// Stylesheet tối dùng chung cho cửa sổ chính và hộp thoại.
+/// Dark stylesheet shared by the main window and the dialogs.
 inline QString appStyleSheet()
 {
     return QStringLiteral(R"(

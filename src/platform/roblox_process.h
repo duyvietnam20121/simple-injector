@@ -1,16 +1,15 @@
 #pragma once
 
-#include "core/flag_applier.h"
-#include "process_probe.h"
+#include "core/apply/process_memory.h"
+#include "platform/process_probe.h"
 
 namespace SimpleInjector {
 
-/// Tìm, mở, đọc và ghi vào tiến trình RobloxPlayerBeta.exe.
+/// Finds, opens, reads and writes the RobloxPlayerBeta.exe process.
 ///
-/// Chỉ dùng API Windows có tài liệu (OpenProcess / ReadProcessMemory /
-/// WriteProcessMemory) với quyền của chính người dùng. Trên nền tảng khác,
-/// lớp này luôn báo `ProcessState::Unsupported`.
-class RobloxProcess final : public IMemoryWriter, public IProcessProbe {
+/// Uses only documented Windows APIs (OpenProcess / ReadProcessMemory / WriteProcessMemory) with
+/// the current user's own rights. On other platforms it always reports `ProcessState::Unsupported`.
+class RobloxProcess final : public IProcessMemory, public IProcessProbe {
 public:
     RobloxProcess() = default;
     ~RobloxProcess() override;
@@ -18,8 +17,8 @@ public:
     RobloxProcess(const RobloxProcess &) = delete;
     RobloxProcess &operator=(const RobloxProcess &) = delete;
 
-    /// Giữ kết nối nếu tiến trình còn sống (kiểm tra rẻ bằng handle),
-    /// ngược lại quét lại danh sách tiến trình.
+    /// Keeps the connection while the process is alive (a cheap handle check), otherwise
+    /// scans the process list again.
     ProcessStatus refresh() override;
     void detach() override;
 
@@ -30,7 +29,7 @@ public:
     bool readInt32(quintptr address, qint32 *out) override;
 
 private:
-    void *handle_ = nullptr; // HANDLE trên Windows
+    void *handle_ = nullptr; // HANDLE on Windows
     quint32 pid_ = 0;
     quintptr imageBase_ = 0;
     QString version_;

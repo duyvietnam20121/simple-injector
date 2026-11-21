@@ -1,6 +1,6 @@
-#include "roblox_process.h"
+#include "platform/roblox_process.h"
 
-#include "core/roblox_version.h"
+#include "core/offsets/roblox_version.h"
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -22,11 +22,6 @@ namespace SimpleInjector {
 namespace {
 
 constexpr const wchar_t *kProcessName = L"RobloxPlayerBeta.exe";
-
-struct FoundProcess {
-    DWORD pid = 0;
-    quintptr imageBase = 0;
-};
 
 std::optional<DWORD> findProcessId()
 {
@@ -103,8 +98,8 @@ void RobloxProcess::detach()
 ProcessStatus RobloxProcess::refresh()
 {
 #ifdef Q_OS_WIN
-    // Đang gắn: handle báo "chưa tín hiệu" nghĩa là tiến trình còn sống,
-    // không cần duyệt lại toàn bộ danh sách tiến trình mỗi lần.
+    // While attached, a non-signaled process handle means the process is still alive, so there is
+    // no need to walk the whole process list on every check.
     if (handle_) {
         if (WaitForSingleObject(static_cast<HANDLE>(handle_), 0) == WAIT_TIMEOUT)
             return {ProcessState::Connected, pid_, imageBase_, 0, version_};

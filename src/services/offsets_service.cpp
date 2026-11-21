@@ -1,7 +1,8 @@
-#include "offsets_service.h"
+#include "services/offsets_service.h"
 
-#include "core/flag_utils.h"
-#include "core/roblox_version.h"
+#include "core/offsets/offsets_cache.h"
+#include "core/offsets/offsets_header_parser.h"
+#include "core/offsets/roblox_version.h"
 
 #include <QDebug>
 #include <QFileInfo>
@@ -65,7 +66,7 @@ void OffsetsService::onReplyFinished(QNetworkReply *reply)
 
     const QByteArray body = reply->readAll();
     if (body.size() > maxBodyBytes_) {
-        lastError_ = QStringLiteral("Phản hồi lớn %1 byte, vượt giới hạn %2")
+        lastError_ = QStringLiteral("The response is %1 bytes, over the %2-byte limit")
                          .arg(body.size()).arg(maxBodyBytes_);
         emit refreshFinished(Outcome::TooLarge, lastError_);
         return;
@@ -74,7 +75,7 @@ void OffsetsService::onReplyFinished(QNetworkReply *reply)
     const QString source = QString::fromUtf8(body);
     OffsetMap parsed = parseOffsetsHeader(source);
     if (parsed.isEmpty()) {
-        lastError_ = QStringLiteral("Nguồn không có mục offset hợp lệ");
+        lastError_ = QStringLiteral("The source contains no valid offset entries");
         emit refreshFinished(Outcome::EmptyResult, lastError_);
         return;
     }
@@ -87,7 +88,7 @@ void OffsetsService::onReplyFinished(QNetworkReply *reply)
 
     QString saveError;
     if (!saveOffsetsCache(cachePath_, offsets_, version_, &saveError))
-        qWarning("Không lưu được cache offsets: %s", qPrintable(saveError));
+        qWarning("Could not save the offsets cache: %s", qPrintable(saveError));
 
     emit refreshFinished(Outcome::Updated, {});
 }

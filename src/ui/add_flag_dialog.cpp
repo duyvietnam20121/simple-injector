@@ -1,7 +1,7 @@
-#include "add_flag_dialog.h"
+#include "ui/add_flag_dialog.h"
 
-#include "core/flag_utils.h"
-#include "style.h"
+#include "core/io/json_io.h"
+#include "ui/style.h"
 
 #include <QFile>
 #include <QFileDialog>
@@ -31,7 +31,7 @@ AddFlagDialog::AddFlagDialog(QWidget *parent) : QDialog(parent)
 
     editor_ = new QPlainTextEdit(this);
     editor_->setPlaceholderText(QStringLiteral(
-        "Dán một JSON object vào đây...\nVí dụ:\n{\n  \"SomeFlag\": true,\n  \"SomeInt\": 120\n}"));
+        "Paste a JSON object here...\nExample:\n{\n  \"SomeFlag\": true,\n  \"SomeInt\": 120\n}"));
     editor_->setStyleSheet(QStringLiteral("font-family: Consolas, monospace;"));
     layout->addWidget(editor_, 1);
 
@@ -59,18 +59,18 @@ QJsonObject AddFlagDialog::flags(QString *error) const
 void AddFlagDialog::importFromFile()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, QStringLiteral("Chọn file JSON"), {}, QStringLiteral("JSON Files (*.json)"));
+        this, QStringLiteral("Choose a JSON file"), {}, QStringLiteral("JSON Files (*.json)"));
     if (path.isEmpty())
         return;
 
     QFile file(path);
     if (file.size() > kMaxImportBytes) {
-        QMessageBox::warning(this, QStringLiteral("Import thất bại"),
-                             QStringLiteral("File quá lớn (giới hạn 5 MB)."));
+        QMessageBox::warning(this, QStringLiteral("Import failed"),
+                             QStringLiteral("The file is too large (5 MB limit)."));
         return;
     }
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, QStringLiteral("Import thất bại"), file.errorString());
+        QMessageBox::warning(this, QStringLiteral("Import failed"), file.errorString());
         return;
     }
     editor_->setPlainText(QString::fromUtf8(file.readAll()));

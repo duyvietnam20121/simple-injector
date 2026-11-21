@@ -1,62 +1,69 @@
 # Simple Injector v1.1 — C++20 / Qt 6
 
-Ứng dụng desktop C++20 + Qt 6 Widgets để quản lý danh sách FastFlag và ghi các giá trị
-số nguyên/boolean vào `RobloxPlayerBeta.exe` đang chạy (Windows).
+A C++20 + Qt 6 Widgets desktop app (Windows) that keeps a list of Roblox FastFlags and writes
+their boolean / 32-bit integer values into the running `RobloxPlayerBeta.exe`, then tells you
+which flags were applied and which were not.
 
-## Tính năng
+## Features
 
-- Thêm flag từ JSON dán vào hoặc nhập từ file `.json` (báo số mục bị bỏ qua).
-- Bảng `QAbstractTableModel` + `QSortFilterProxyModel`: sắp xếp theo cột, lọc theo tên/giá trị,
-  **sửa giá trị trực tiếp** (nhấp đúp hoặc `F2`), xóa bằng `Delete`, sao chép `Ctrl+C`, xuất file.
-- Lưu flag và cài đặt bằng ghi nguyên tử (`QSaveFile`).
-- **Cột STATUS cho từng flag**: `● Sẵn sàng`, `✓ Đã áp dụng`, `⚠ Không khớp khi đọc lại`,
-  `✗ Không có offset`, `✗ Giá trị không hỗ trợ`, `✗ Lỗi ghi`. Trạng thái được dự đoán ngay từ bảng offsets
-  (trước khi Apply), rồi thay bằng kết quả thực tế sau Apply. Rê chuột vào NAME hoặc STATUS để xem lý do
-  chi tiết (địa chỉ, giá trị đọc lại...). Có thể sắp xếp theo STATUS (vấn đề lên trước), gõ chữ trạng thái vào
-  ô tìm kiếm, hoặc bật "Chỉ hiện flag có vấn đề". Sửa giá trị một flag sẽ xóa kết quả Apply cũ của flag đó;
-  mất kết nối hoặc gắn vào tiến trình mới sẽ xóa toàn bộ kết quả cũ.
-- **Đọc lại sau khi ghi** (`ReadProcessMemory`) để xác nhận giá trị thực sự đã đổi; báo riêng
-  các mục "ghi nhưng đọc lại không khớp" (dấu hiệu offset đã cũ).
-- **Đối chiếu phiên bản**: lấy `version-<hex>` của Roblox đang chạy (từ đường dẫn file chạy) và của
-  bảng offsets (từ `ClientVersion` trong header). Lệch phiên bản thì cảnh báo, hỏi xác nhận khi Apply
-  thủ công, và Auto Apply tự hoãn rồi tải offsets mới trước khi ghi.
-- **Làm mới offsets định kỳ** (15 phút), cộng thêm làm mới ngay khi gắn vào Roblox mà đang lệch phiên bản.
-- Phát hiện Roblox bằng handle tiến trình (không duyệt lại danh sách tiến trình khi đang kết nối).
-- Tự động Apply đúng một lần mỗi khi gắn vào một tiến trình Roblox mới.
+- Add flags from pasted JSON or from a `.json` file (the app reports how many entries were skipped).
+- A table built on `QAbstractTableModel` + `QSortFilterProxyModel`: sort by any column, filter by
+  name / value / status, **edit values in place** (double-click or `F2`), delete with `Delete`,
+  copy with `Ctrl+C`, export to a file.
+- **Per-flag STATUS column** with three easy states:
+  `— Pending` (not applied yet, or the value was edited since), `✓ Applied`, `✗ Failed`.
+  There is also an "Only show failed flags" filter, and sorting by STATUS puts failures first.
+  Editing a flag resets its status to pending; losing the Roblox connection or attaching to a new
+  process clears all statuses.
+- **Read-back verification**: after every write the value is read back with `ReadProcessMemory`.
+  A flag counts as applied only if the read-back matches; otherwise it is reported as failed
+  (a typical sign of a stale offset or of the game overwriting the value).
+- **Version check**: the running Roblox version (`version-<hex>`, taken from the executable's path) is
+  compared with the version the offsets table was generated for (the `ClientVersion` line of the
+  header). On a mismatch the app warns, asks for confirmation before a manual Apply, and postpones
+  Auto Apply until newer offsets have been downloaded.
+- **Offsets provenance**: the offsets line shows the entry count, the version, and whether the data
+  came from the network (with the time) or from the on-disk cache; a failed download is shown
+  persistently. A **Refresh** button downloads the table again; it also refreshes every 15 minutes
+  and right after attaching to Roblox when the versions differ.
+- Cheap Roblox detection (a process handle check while attached, a process-list scan otherwise) and
+  Auto Apply exactly once per newly attached process.
+- Flags and settings are saved atomically (`QSaveFile`).
+- The window size follows the screen (it never overflows small or highly scaled displays) and can be
+  resized with the grip in the bottom-right corner.
 
-## Cấu trúc mã nguồn
+## Source layout
 
 ```
 src/
-  core/        Logic không phụ thuộc Widgets/Windows, kiểm thử được
-    flag_utils     Chuẩn hóa tên, ép kiểu giá trị, parse offsets, đọc/ghi JSON
-    flag_store     Kho flag: nạp, lưu, gộp, sửa, xóa, trích tập con
-    flag_table_model Mô hình bảng 3 cột (Tên/Giá trị/Trạng thái) + proxy lọc "chỉ vấn đề" (Qt Core + Gui cho màu)
-    flag_applier   IMemoryWriter + applyFlags (ghi int32, đọc lại) + FlagStatus/previewFlag cho từng flag
-    offsets_cache  Đọc/ghi cache offsets (kèm phiên bản trong khóa `__meta`)
-    roblox_version Phân tích phiên bản từ header/đường dẫn, so khớp
-    app_storage    Thư mục dữ liệu + di trú từ thư mục "ez" cũ
-  platform/    Phần phụ thuộc Windows
-    process_probe  IProcessProbe + ProcessStatus (để test bằng probe giả)
-    roblox_process Tìm/mở tiến trình, đọc/ghi bộ nhớ (IMemoryWriter + IProcessProbe)
-    process_monitor Theo dõi định kỳ, phát tín hiệu khi đổi trạng thái / vừa gắn
+  main.cpp
+  core/                  Logic with no dependency on Widgets or Windows; unit-tested
+    io/                    json_io (parse/read/write JSON atomically), app_storage (data folder)
+    flags/                 flag_name (prefix handling), flag_value (value parsing),
+                           flag_store, flag_table_model, flag_filter_proxy_model
+    offsets/               offset_map, offset_lookup, offsets_header_parser, offsets_cache,
+                           roblox_version
+    apply/                 process_memory (IProcessMemory), flag_status, flag_applier
+  platform/              The Roblox process (Windows APIs)
+    process_probe            IProcessProbe + ProcessStatus (so tests can use a fake probe)
+    roblox_process           finds/opens the process, reads and writes memory
+    process_monitor          polls a probe and emits status changes
   services/
-    offsets_service Tải offsets (thủ công/định kỳ) + cache + phiên bản
-  ui/          Widgets: main_window, add_flag_dialog, title_bar, style
-tests/         Test đơn vị (không cần Roblox, không đụng tiến trình khác)
-  test_offsets_service  Dùng QTcpServer cục bộ giả làm nguồn tải (200, 404, rỗng, quá lớn, treo, tự làm mới)
-  test_process_monitor  Dùng IProcessProbe giả (đổi trạng thái, gắn lại, đổi PID, hẹn giờ)
-  test_flag_table_model Gồm QAbstractItemModelTester, sửa giá trị, lọc/sắp xếp proxy, 5000 dòng
+    offsets_service          downloads (manual / periodic) + cache + version of the offsets
+  ui/                    Widgets: main_window, add_flag_dialog, title_bar, style, window_sizing
+resources/               icon (app.ico, app.png), app.qrc, app.rc.in (icon + version info for the .exe)
+tests/                   One test executable per module; none needs Roblox
 ```
 
-Quy tắc phụ thuộc: `ui` -> `services`/`platform`/`core`; `core` không biết gì về giao diện
-hay Windows. Truy cập bộ nhớ đi qua `IMemoryWriter` và tiến trình đi qua `IProcessProbe`,
-nên test dùng đối tượng giả.
+Dependency rule: `ui` → `services` / `platform` / `core`; `core` knows nothing about the UI or
+Windows. Process memory goes through `IProcessMemory` and the process through `IProcessProbe`, so the
+tests use fakes. `OffsetsService` is tested against a local `QTcpServer` acting as the download
+source (200, 404, empty body, oversized body, hung server, concurrent refreshes, periodic refresh).
 
-## Build cục bộ (Windows)
+## Building locally (Windows)
 
-Yêu cầu: Visual Studio 2022 (Desktop development with C++), CMake ≥ 3.21,
-Qt ≥ 6.7 với các module `Core`, `Gui`, `Widgets`, `Network`, `Test`.
+Requirements: Visual Studio 2022 (Desktop development with C++), CMake ≥ 3.21, Qt ≥ 6.7 with the
+`Core`, `Gui`, `Widgets`, `Network` and `Test` modules.
 
 ```powershell
 cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.x.x/msvc2022_64" -DBUILD_TESTING=ON
@@ -64,38 +71,46 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-File chạy: `build/Release/SimpleInjector.exe`. Có thể hạ yêu cầu Qt khi build thử bằng
-`-DSI_QT_MIN_VERSION=6.4` (mã đã được biên dịch và chạy test với Qt 6.4 trên Linux; phần
-Windows chỉ biên dịch được trên Windows).
+The executable is `build/Release/SimpleInjector.exe`. For a trial build you can lower the Qt
+requirement with `-DSI_QT_MIN_VERSION=6.4` (the code has been built and tested with Qt 6.4 on
+Linux; the Windows-only parts compile on Windows only).
+
+CMake lists every missing source file at once, and refuses to configure if a key file still has
+outdated content (for example a file pasted under the wrong name).
 
 ## CI
 
-`.github/workflows/ci.yml` chạy trên push/PR: cài Qt 6.8.3, build, chạy CTest, `windeployqt`,
-rồi tải thư mục `Simple-Injector-windows-x64` lên Artifacts. Bản portable không kèm Microsoft
-Visual C++ Redistributable (x64) — cài thêm nếu Windows báo thiếu DLL MSVC.
+`.github/workflows/ci.yml` runs on push / pull request: it installs Qt 6.8.3, builds, runs CTest,
+runs `windeployqt`, and uploads the `Simple-Injector-windows-x64` folder as an artifact. The portable
+folder does not include the Microsoft Visual C++ Redistributable (x64); install it if Windows
+complains about missing MSVC DLLs.
 
-## Phiên bản và icon
+## Version and icon
 
-- Phiên bản khai báo MỘT chỗ: `project(SimpleInjector VERSION 1.1.0 ...)` trong `CMakeLists.txt`.
-  Từ đó CMake sinh ra: số hiển thị `v1.1` trên thanh tiêu đề và tiêu đề cửa sổ, cùng thông tin phiên bản
-  trong file `.exe` (Properties > Details). Lên bản mới chỉ cần sửa dòng này.
-- Icon nằm ở `resources/icons/`: `app.ico` (nhiều cỡ 16–256 px, gắn vào `.exe` qua `resources/app.rc.in`)
-  và `app.png` (nhúng bằng `resources/app.qrc`, dùng cho thanh tiêu đề và icon cửa sổ).
-  Muốn đổi icon, thay hai file này (giữ nguyên tên) rồi build lại.
+- The version is declared in one place: `project(SimpleInjector VERSION 1.1.0 ...)` in
+  `CMakeLists.txt`. From it CMake generates the `v1.1` shown in the title bar and the window title,
+  and the version info embedded in the `.exe` (Properties > Details). To release a new version, edit
+  that line.
+- The icon lives in `resources/icons/`: `app.ico` (sizes 16–256 px, attached to the `.exe` through
+  `resources/app.rc.in`) and `app.png` (embedded with `resources/app.qrc`, used by the title bar and the
+  window icon). To change the icon, replace those two files (keep the names) and rebuild.
 
-## Dữ liệu
+## Data
 
-Lưu tại `%LOCALAPPDATA%/SimpleInjector/`: `ffs.json` (flags), `settings.json`, `offsets.json`
-(cache). Lần đầu chạy, file khớp tên trong `%LOCALAPPDATA%/ez/` được sao sang nếu chưa có.
+Stored in `%LOCALAPPDATA%/SimpleInjector/`: `ffs.json` (flags), `settings.json`, and `offsets.json`
+(the offsets cache, with the Roblox version under a `__meta` key). On first run, files with the same
+names in `%LOCALAPPDATA%/ez/` are copied over if they do not exist yet.
 
-## Giới hạn quan trọng
+## Important limits
 
-- Chỉ dùng `WriteProcessMemory` có tài liệu với quyền của chính người dùng; không vượt qua bảo vệ
-  tiến trình hay anti-cheat của Roblox.
-- Offset được hiểu là giá trị 32-bit ghi được, tính từ base của module chính. Đọc lại khớp giá trị
-  chỉ chứng minh ô nhớ đó nhận giá trị, không chứng minh đó đúng là flag mong muốn; ngược lại,
-  đọc lại không khớp cũng có thể do game tự ghi đè ngay sau đó.
-- Việc đối chiếu phiên bản dựa vào tên thư mục `version-<hex>` của file chạy và dòng `ClientVersion`
-  trong header offsets. Thiếu một trong hai thì kết quả là "chưa đối chiếu được" (không chặn).
-- Chỉ boolean và số nguyên 32-bit có dấu được Apply; flag kiểu chuỗi chỉ lưu/xuất.
-- Offset sai hoặc cũ có thể gây mất ổn định. Chỉ dùng offset bạn được phép dùng và đã tự kiểm chứng.
+- Only documented `ReadProcessMemory` / `WriteProcessMemory` calls are used, with the current user's
+  own rights; the app does not bypass any process protection or anti-cheat of Roblox.
+- An offset is interpreted as a writable 32-bit value relative to the base of the main module. A
+  matching read-back only proves that the memory cell took the value, not that it is the flag you
+  meant; conversely, a mismatch can also be the game overwriting the value right after the write.
+- The version check relies on the `version-<hex>` folder name of the executable and on the
+  `ClientVersion` line of the offsets header. If either is missing the result is "cannot compare
+  yet" and nothing is blocked.
+- Only booleans and signed 32-bit integers can be applied; string flags are stored and exported only.
+- A wrong or stale offset can destabilize Roblox. Use only offsets you are allowed to use and have
+  verified yourself.

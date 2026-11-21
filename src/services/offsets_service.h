@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/offsets_cache.h"
+#include "core/offsets/offset_map.h"
 
 #include <QDateTime>
 #include <QObject>
@@ -13,37 +13,39 @@ class QNetworkReply;
 
 namespace SimpleInjector {
 
-/// Quản lý bảng offsets: nạp cache cục bộ, tải bản mới bất đồng bộ (thủ công hoặc
-/// định kỳ), nhận diện phiên bản Roblox mà bảng được tạo ra, rồi ghi lại cache.
+/// Owns the offsets table: loads the local cache, downloads a fresh copy asynchronously
+/// (manually or periodically), detects which Roblox version the table was generated for,
+/// and writes the cache back.
 class OffsetsService final : public QObject {
     Q_OBJECT
 
 public:
     enum class Outcome {
-        Updated,      ///< Tải và phân tích thành công, cache đã cập nhật.
-        NetworkError, ///< Lỗi mạng / HTTP / hết thời gian; giữ nguyên offsets hiện có.
-        EmptyResult,  ///< Tải được nhưng không có mục hợp lệ; giữ nguyên offsets hiện có.
-        TooLarge,     ///< Phản hồi vượt giới hạn kích thước; bị từ chối.
+        Updated,      ///< Downloaded and parsed successfully; the cache was updated.
+        NetworkError, ///< Network / HTTP error or timeout; the existing offsets are kept.
+        EmptyResult,  ///< Downloaded, but no valid entries; the existing offsets are kept.
+        TooLarge,     ///< The response exceeded the size limit and was rejected.
     };
     Q_ENUM(Outcome)
 
-    /// Bảng offsets hiện tại đến từ đâu: giúp người dùng biết mình đang dùng dữ liệu mới hay cũ.
+    /// Where the current table came from, so users can tell fresh data from stale data.
     enum class Source {
-        None,    ///< Chưa có dữ liệu.
-        Cache,   ///< Nạp từ file cache trên đĩa (có thể đã cũ).
-        Network, ///< Vừa tải từ nguồn trực tuyến.
+        None,    ///< No data yet.
+        Cache,   ///< Loaded from the cache file on disk (may be stale).
+        Network, ///< Just downloaded from the online source.
     };
     Q_ENUM(Source)
 
     OffsetsService(QUrl sourceUrl, QString cachePath, QObject *parent = nullptr);
 
-    /// Nạp cache (offsets + phiên bản) từ đĩa; gọi một lần khi khởi động.
+    /// Loads the cache (offsets + version) from disk; call once at startup.
     void loadCache();
 
-    /// Bắt đầu tải; bỏ qua nếu đang có yêu cầu chạy.
+    /// Starts a download; ignored while another one is running.
     void refresh();
 
-    /// Tải lại mỗi `intervalMs` mili giây. Gọi lại để đổi chu kỳ; `stopAutoRefresh()` để dừng.
+    /// Refreshes every `intervalMs` milliseconds. Call again to change the interval;
+    /// `stopAutoRefresh()` stops it.
     void startAutoRefresh(int intervalMs);
     void stopAutoRefresh();
     bool isAutoRefreshing() const { return autoTimer_.isActive(); }
@@ -52,19 +54,19 @@ public:
     void setMaxBodyBytes(qint64 bytes) { maxBodyBytes_ = bytes; }
 
     const OffsetMap &offsets() const { return offsets_; }
-    /// Phiên bản Roblox mà offsets hiện tại thuộc về (rỗng nếu không biết).
+    /// Roblox version the current offsets belong to (empty if unknown).
     const QString &version() const { return version_; }
     Source source() const { return source_; }
-    /// Thời điểm dữ liệu hiện tại được tải (mạng) hoặc được lưu (cache); không hợp lệ nếu chưa có.
+    /// When the current data was downloaded (network) or saved (cache); invalid if there is none.
     const QDateTime &loadedAt() const { return loadedAt_; }
-    /// Lỗi của lần tải gần nhất; rỗng nếu lần gần nhất thành công (hoặc chưa tải lần nào).
+    /// Error of the most recent download; empty if it succeeded (or none has run).
     const QString &lastError() const { return lastError_; }
     bool isEmpty() const { return offsets_.isEmpty(); }
     bool isRefreshing() const { return inFlight_; }
 
 signals:
     void refreshStarted();
-    /// `detail` chứa mô tả lỗi khi outcome khác Updated.
+    /// `detail` describes the error when `outcome` is not Updated.
     void refreshFinished(SimpleInjector::OffsetsService::Outcome outcome, const QString &detail);
 
 private:

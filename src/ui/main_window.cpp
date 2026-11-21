@@ -1,13 +1,14 @@
-#include "main_window.h"
+#include "ui/main_window.h"
 
-#include "add_flag_dialog.h"
-#include "core/flag_applier.h"
-#include "core/flag_table_model.h"
-#include "core/flag_utils.h"
-#include "core/window_sizing.h"
+#include "core/apply/flag_applier.h"
+#include "core/flags/flag_filter_proxy_model.h"
+#include "core/flags/flag_table_model.h"
+#include "core/io/json_io.h"
 #include "platform/process_monitor.h"
-#include "style.h"
-#include "title_bar.h"
+#include "ui/add_flag_dialog.h"
+#include "ui/style.h"
+#include "ui/title_bar.h"
+#include "ui/window_sizing.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -39,7 +40,7 @@ namespace {
 constexpr auto kOffsetsUrl =
     "https://raw.githubusercontent.com/duyvietnam20121/fflags-offset/refs/heads/main/FFlags.hpp";
 constexpr int kMonitorIntervalMs = 1500;
-constexpr int kOffsetsRefreshMs = 15 * 60 * 1000; // làm mới offsets mỗi 15 phút
+constexpr int kOffsetsRefreshMs = 15 * 60 * 1000; // refresh the offsets every 15 minutes
 constexpr int kSearchDebounceMs = 150;
 constexpr int kAutoApplyDelayMs = 250;
 const QString kAutoApplyKey = QStringLiteral("auto_apply");
@@ -58,7 +59,7 @@ MainWindow::MainWindow()
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
 
-    // Cỡ cửa sổ co theo màn hình (không cố định) và có tay nắm kéo ở góc phải dưới.
+    // The window size follows the screen (it is not fixed) and has a resize grip at the bottom right.
     const QRect available = QGuiApplication::primaryScreen()->availableGeometry();
     setMinimumSize(fitToScreen(kMinimumSize, available));
     const QSize initial = fitToScreen(kPreferredSize, available);
@@ -111,7 +112,7 @@ void MainWindow::buildUi()
 
     const QString dimLabel = QStringLiteral("color:#777;font-size:10px;border:none;");
 
-    statusLabel_ = new QLabel(QStringLiteral("Trạng thái: đang kiểm tra Roblox..."), this);
+    statusLabel_ = new QLabel(QStringLiteral("Status: checking for Roblox..."), this);
     statusLabel_->setStyleSheet(statusStyle(false));
     statusLabel_->setWordWrap(true);
     content->addWidget(statusLabel_);
@@ -121,9 +122,9 @@ void MainWindow::buildUi()
 
     offsetsLabel_ = new QLabel(this);
     offsetsLabel_->setWordWrap(true);
-    refreshOffsetsButton_ = new QPushButton(QStringLiteral("↻ Làm mới"), this);
+    refreshOffsetsButton_ = new QPushButton(QStringLiteral("↻ Refresh"), this);
     refreshOffsetsButton_->setFixedSize(92, 26);
-    refreshOffsetsButton_->setToolTip(QStringLiteral("Tải lại bảng offsets ngay bây giờ"));
+    refreshOffsetsButton_->setToolTip(QStringLiteral("Download the offsets table again now"));
     refreshOffsetsButton_->setStyleSheet(QStringLiteral("padding:2px 8px;font-size:11px;"));
 
     auto *offsetsRow = new QHBoxLayout();
@@ -146,13 +147,13 @@ void MainWindow::buildUi()
     content->addLayout(actions);
 
     search_ = new QLineEdit(this);
-    search_->setPlaceholderText(QStringLiteral("Tìm theo tên, giá trị hoặc trạng thái..."));
+    search_->setPlaceholderText(QStringLiteral("Search by name, value or status..."));
     search_->setClearButtonEnabled(true);
-    problemsOnlyCheck_ = new QCheckBox(QStringLiteral("Chỉ hiện flag không áp dụng"), this);
+    failedOnlyCheck_ = new QCheckBox(QStringLiteral("Only show failed flags"), this);
 
     auto *filterRow = new QHBoxLayout();
     filterRow->addWidget(search_, 1);
-    filterRow->addWidget(problemsOnlyCheck_);
+    filterRow->addWidget(failedOnlyCheck_);
     content->addLayout(filterRow);
 
     table_ = new QTableView(this);
@@ -174,7 +175,7 @@ void MainWindow::buildUi()
     header->resizeSection(FlagTableModel::StatusColumn, 190);
     content->addWidget(table_, 1);
 
-    auto *hint = new QLabel(QStringLiteral("Nhấp đúp (hoặc F2) cột VALUE để sửa · Delete để xóa"), this);
+    auto *hint = new QLabel(QStringLiteral("Double-click (or press F2) in the VALUE column to edit · Delete removes the selection"), this);
     hint->setStyleSheet(QStringLiteral("color:#555;font-size:10px;border:none;"));
     content->addWidget(hint);
 
@@ -206,13 +207,13 @@ void MainWindow::connectSignals()
         proxy_->setFilterFixedString(search_->text().trimmed());
     });
 
-    // Bảng đổi (lọc, thêm, xóa, reset) -> cập nhật bộ đếm.
+    // The table changed (filter, add, remove, reset): update the counters.
     connect(proxy_, &QAbstractItemModel::rowsInserted, this, [this] { updateCount(); });
     connect(proxy_, &QAbstractItemModel::rowsRemoved, this, [this] { updateCount(); });
     connect(proxy_, &QAbstractItemModel::modelReset, this, [this] { updateCount(); });
     connect(model_, &QAbstractItemModel::dataChanged, this, [this] { updateCount(); });
-    connect(problemsOnlyCheck_, &QCheckBox::toggled, this,
-            [this](bool checked) { proxy_->setProblemsOnly(checked); });
+    connect(failedOnlyCheck_, &QCheckBox::toggled, this,
+            [this](bool checked) { proxy_->setFailedOnly(checked); });
     connect(model_, &FlagTableModel::valueEdited, this, &MainWindow::onValueEdited);
 
     connect(autoApplyCheck_, &QCheckBox::toggled, this, [this](bool checked) {
@@ -230,14 +231,14 @@ void MainWindow::connectSignals()
 
     connect(monitor_, &ProcessMonitor::statusChanged, this, &MainWindow::onProcessStatusChanged);
     connect(monitor_, &ProcessMonitor::attached, this, [this] {
-        model_->clearApplyResults(); // tiến trình mới: kết quả Apply cũ không còn đúng
-        // Roblox có thể vừa cập nhật: lấy offsets mới nhất nếu đang lệch phiên bản.
+        model_->clearApplyResults(); // a new process: the old apply results no longer hold
+        // Roblox may have just updated: fetch the latest offsets if the versions differ.
         if (currentVersionMatch() == VersionMatch::Mismatch)
             offsets_->refresh();
 
         if (!autoApplyCheck_->isChecked())
             return;
-        // Chờ một chút để Roblox khởi tạo xong rồi mới ghi.
+        // Give Roblox a moment to finish starting up before writing.
         QTimer::singleShot(kAutoApplyDelayMs, this, [this] {
             if (monitor_->isConnected())
                 applyAll(false);
@@ -248,7 +249,7 @@ void MainWindow::connectSignals()
     connect(offsets_, &OffsetsService::refreshFinished, this, &MainWindow::onOffsetsFinished);
 }
 
-// ---- Thao tác người dùng ---------------------------------------------------
+// ---- User actions ----------------------------------------------------------
 
 void MainWindow::showAddDialog()
 {
@@ -259,27 +260,27 @@ void MainWindow::showAddDialog()
     QString error;
     const QJsonObject incoming = dialog.flags(&error);
     if (!error.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("JSON không hợp lệ"), error);
+        QMessageBox::warning(this, QStringLiteral("Invalid JSON"), error);
         return;
     }
     if (incoming.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("Không có flag"),
-                                 QStringLiteral("JSON object đang rỗng."));
+        QMessageBox::information(this, QStringLiteral("No flags"),
+                                 QStringLiteral("The JSON object is empty."));
         return;
     }
 
     const FlagStore::MergeResult result = flags_.merge(incoming);
     if (result.added == 0) {
-        QMessageBox::warning(this, QStringLiteral("Không có flag hợp lệ"),
-                             QStringLiteral("Chỉ hỗ trợ giá trị kiểu chuỗi, số và boolean."));
+        QMessageBox::warning(this, QStringLiteral("No valid flags"),
+                             QStringLiteral("Only string, number and boolean values are supported."));
         return;
     }
 
     model_->reload();
     saveFlags(result.skipped > 0
-                  ? QStringLiteral("Đã thêm/cập nhật %1 flag · bỏ qua %2 mục không hợp lệ")
+                  ? QStringLiteral("Added/updated %1 flags · skipped %2 invalid entries")
                         .arg(result.added).arg(result.skipped)
-                  : QStringLiteral("Đã thêm/cập nhật %1 flag").arg(result.added));
+                  : QStringLiteral("Added/updated %1 flags").arg(result.added));
 }
 
 void MainWindow::removeSelected()
@@ -290,23 +291,23 @@ void MainWindow::removeSelected()
 
     const int removed = flags_.remove(names);
     model_->reload();
-    saveFlags(QStringLiteral("Đã xóa %1 flag").arg(removed));
+    saveFlags(QStringLiteral("Removed %1 flags").arg(removed));
 }
 
 void MainWindow::exportFlags()
 {
     const QString path = QFileDialog::getSaveFileName(
-        this, QStringLiteral("Xuất flags"), QStringLiteral("fflags.json"),
+        this, QStringLiteral("Export flags"), QStringLiteral("fflags.json"),
         QStringLiteral("JSON Files (*.json)"));
     if (path.isEmpty())
         return;
 
     QString error;
     if (!writeJsonAtomically(path, flags_.entries(), &error)) {
-        QMessageBox::warning(this, QStringLiteral("Xuất thất bại"), error);
+        QMessageBox::warning(this, QStringLiteral("Export failed"), error);
         return;
     }
-    setStatus(QStringLiteral("Đã xuất %1 flag").arg(flags_.size()), true);
+    setStatus(QStringLiteral("Exported %1 flags").arg(flags_.size()), true);
 }
 
 void MainWindow::copySelected()
@@ -321,28 +322,28 @@ void MainWindow::copySelected()
 void MainWindow::applyAll(bool interactive)
 {
     if (!monitor_->isConnected()) {
-        setStatus(QStringLiteral("Chưa kết nối Roblox"), false);
+        setStatus(QStringLiteral("Not connected to Roblox"), false);
         return;
     }
     if (offsets_->isEmpty()) {
-        setStatus(QStringLiteral("Chưa có offsets; đã hủy Apply"), false);
+        setStatus(QStringLiteral("No offsets available; Apply cancelled"), false);
         return;
     }
 
     if (currentVersionMatch() == VersionMatch::Mismatch) {
-        const QString detail = QStringLiteral("Roblox đang chạy %1 nhưng offsets thuộc %2.")
+        const QString detail = QStringLiteral("Roblox is running %1 but the offsets belong to %2.")
                                    .arg(shortVersion(monitor_->status().version),
                                         shortVersion(offsets_->version()));
         if (!interactive) {
-            // Không tự ghi bằng offsets có khả năng đã cũ: chờ bản mới rồi thử lại.
+            // Do not write with offsets that are probably stale: wait for fresh ones and retry.
             pendingAutoApply_ = true;
-            setStatus(QStringLiteral("Auto Apply tạm hoãn: %1 Đang kiểm tra offsets mới...").arg(detail), false);
+            setStatus(QStringLiteral("Auto Apply postponed: %1 Checking for newer offsets...").arg(detail), false);
             offsets_->refresh();
             return;
         }
         const auto answer = QMessageBox::warning(
-            this, QStringLiteral("Offsets có thể đã cũ"),
-            detail + QStringLiteral("\n\nGhi sai offset có thể làm Roblox mất ổn định. Vẫn tiếp tục?"),
+            this, QStringLiteral("Offsets may be outdated"),
+            detail + QStringLiteral("\n\nWriting to a wrong offset can destabilize Roblox. Continue anyway?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes)
             return;
@@ -352,33 +353,33 @@ void MainWindow::applyAll(bool interactive)
         applyFlags(flags_.entries(), offsets_->offsets(), process_.imageBase(), process_);
     model_->setApplyResults(report.results);
 
-    const bool allApplied = report.total() > 0 && report.applied == report.total();
+    const bool allApplied = report.total() > 0 && report.failed() == 0;
     setStatus(report.summary(), allApplied);
 }
 
-// ---- Phản hồi từ service ---------------------------------------------------
+// ---- Reactions to services -------------------------------------------------
 
 void MainWindow::onProcessStatusChanged(const ProcessStatus &status)
 {
     if (status.state != ProcessState::Connected)
-        model_->clearApplyResults(); // mất kết nối: trạng thái "đã áp dụng" không còn đúng
+        model_->clearApplyResults(); // disconnected: "applied" no longer holds
     switch (status.state) {
     case ProcessState::Connected:
-        setStatus(QStringLiteral("Đã kết nối Roblox · PID %1").arg(status.pid), true);
+        setStatus(QStringLiteral("Connected to Roblox · PID %1").arg(status.pid), true);
         break;
     case ProcessState::NotRunning:
         pendingAutoApply_ = false;
-        setStatus(QStringLiteral("Đang chờ RobloxPlayerBeta.exe"), false);
+        setStatus(QStringLiteral("Waiting for RobloxPlayerBeta.exe"), false);
         break;
     case ProcessState::AccessDenied:
-        setStatus(QStringLiteral("Thấy Roblox nhưng Windows từ chối truy cập (lỗi %1)")
+        setStatus(QStringLiteral("Found Roblox but Windows denied access (error %1)")
                       .arg(status.errorCode), false);
         break;
     case ProcessState::NoModuleBase:
-        setStatus(QStringLiteral("Đã mở Roblox nhưng không đọc được địa chỉ module chính"), false);
+        setStatus(QStringLiteral("Opened Roblox but could not read the main module address"), false);
         break;
     case ProcessState::Unsupported:
-        setStatus(QStringLiteral("Tính năng ghi bộ nhớ chỉ hỗ trợ Windows"), false);
+        setStatus(QStringLiteral("Writing process memory is supported on Windows only"), false);
         break;
     }
     updateVersionLabel();
@@ -398,70 +399,70 @@ void MainWindow::onOffsetsFinished(OffsetsService::Outcome outcome, const QStrin
     case OffsetsService::Outcome::Updated: {
         const VersionMatch match = currentVersionMatch();
         if (connected && match == VersionMatch::Mismatch) {
-            setStatus(QStringLiteral("Offsets đã cập nhật nhưng vẫn lệch phiên bản Roblox. "
-                                     "Chờ nguồn offsets theo kịp bản Roblox mới."), false);
+            setStatus(QStringLiteral("Offsets updated but they still do not match the Roblox version. "
+                                     "Wait for the offsets source to catch up with the new Roblox build."), false);
         } else if (wasPending && connected) {
-            applyAll(false); // offsets mới đã khớp: hoàn tất Auto Apply bị hoãn
+            applyAll(false); // the new offsets match: finish the postponed Auto Apply
         } else {
-            setStatus(connected ? QStringLiteral("Đã kết nối Roblox · đã cập nhật offsets")
-                                : QStringLiteral("Đã cập nhật offsets · đang chờ Roblox"), connected);
+            setStatus(connected ? QStringLiteral("Connected to Roblox · offsets updated")
+                                : QStringLiteral("Offsets updated · waiting for Roblox"), connected);
         }
         break;
     }
     case OffsetsService::Outcome::NetworkError:
-        setStatus(QStringLiteral("Không tải được offsets, dùng bản cache (%1)").arg(detail), false);
+        setStatus(QStringLiteral("Could not download offsets, using the cache (%1)").arg(detail), false);
         break;
     case OffsetsService::Outcome::EmptyResult:
     case OffsetsService::Outcome::TooLarge:
-        setStatus(QStringLiteral("Nguồn offsets không dùng được: %1").arg(detail), false);
+        setStatus(QStringLiteral("The offsets source is unusable: %1").arg(detail), false);
         break;
     }
 }
 
 void MainWindow::onValueEdited(const QString &name, const QString &value)
 {
-    saveFlags(QStringLiteral("Đã sửa %1 = %2").arg(name, value));
+    saveFlags(QStringLiteral("Edited %1 = %2").arg(name, value));
 }
 
-// ---- Hiển thị --------------------------------------------------------------
+// ---- Display ---------------------------------------------------------------
 
 void MainWindow::updateCount()
 {
-    const int problems = model_->problemCount();
-    QString text = QStringLiteral("Flags đã lưu: %1  ·  Đang hiển thị: %2")
+    const int failed = model_->failedCount();
+    QString text = QStringLiteral("Saved flags: %1  ·  Showing: %2")
                        .arg(flags_.size()).arg(proxy_->rowCount());
-    if (problems > 0)
-        text += QStringLiteral("  ·  Không áp dụng: %1").arg(problems);
+    if (failed > 0)
+        text += QStringLiteral("  ·  Failed: %1").arg(failed);
     countLabel_->setText(text);
     updateControls();
 }
 
 void MainWindow::updateOffsetsLabel()
 {
-    QString text = QStringLiteral("Offsets: %1 mục").arg(offsets_->offsets().size());
+    QString text = QStringLiteral("Offsets: %1 entries").arg(offsets_->offsets().size());
     if (!offsets_->version().isEmpty())
         text += QStringLiteral(" · %1").arg(offsets_->version());
 
     switch (offsets_->source()) {
     case OffsetsService::Source::Network:
-        text += QStringLiteral(" · tải từ mạng lúc %1").arg(offsets_->loadedAt().toString(QStringLiteral("HH:mm:ss")));
+        text += QStringLiteral(" · downloaded at %1").arg(offsets_->loadedAt().toString(QStringLiteral("HH:mm:ss")));
         break;
     case OffsetsService::Source::Cache:
-        text += QStringLiteral(" · CACHE trên đĩa (lưu lúc %1)")
-                    .arg(offsets_->loadedAt().toString(QStringLiteral("dd/MM HH:mm")));
+        text += QStringLiteral(" · CACHE on disk (saved %1)")
+                    .arg(offsets_->loadedAt().toString(QStringLiteral("MM-dd HH:mm")));
         break;
     case OffsetsService::Source::None:
-        text += QStringLiteral(" · chưa có dữ liệu");
+        text += QStringLiteral(" · no data yet");
         break;
     }
     if (offsets_->isRefreshing())
-        text += QStringLiteral(" · đang cập nhật...");
+        text += QStringLiteral(" · updating...");
 
     const bool failed = !offsets_->lastError().isEmpty();
     if (failed) {
-        text += QStringLiteral("\n⚠ Lần tải gần nhất lỗi: %1").arg(offsets_->lastError());
+        text += QStringLiteral("\n⚠ The most recent download failed: %1").arg(offsets_->lastError());
         if (offsets_->source() == OffsetsService::Source::Cache)
-            text += QStringLiteral(" — đang dùng bản cache, có thể thiếu flag mới");
+            text += QStringLiteral(" — using the cache; newer flags may be missing");
     }
 
     offsetsLabel_->setText(text);
@@ -476,15 +477,15 @@ void MainWindow::updateVersionLabel()
     QString color;
     switch (match) {
     case VersionMatch::Match:
-        verdict = QStringLiteral("✓ khớp");
+        verdict = QStringLiteral("✓ match");
         color = QStringLiteral("#61D786");
         break;
     case VersionMatch::Mismatch:
-        verdict = QStringLiteral("⚠ KHÔNG KHỚP - offsets có thể đã cũ");
+        verdict = QStringLiteral("⚠ MISMATCH - the offsets may be outdated");
         color = QStringLiteral("#FFB347");
         break;
     case VersionMatch::Unknown:
-        verdict = QStringLiteral("chưa đối chiếu được");
+        verdict = QStringLiteral("cannot compare yet");
         color = QStringLiteral("#777");
         break;
     }
@@ -501,7 +502,7 @@ void MainWindow::updateControls()
 
 void MainWindow::setStatus(const QString &message, bool good)
 {
-    statusLabel_->setText(QStringLiteral("Trạng thái: ") + message);
+    statusLabel_->setText(QStringLiteral("Status: ") + message);
     statusLabel_->setStyleSheet(statusStyle(good));
 }
 
@@ -524,7 +525,7 @@ bool MainWindow::saveFlags(const QString &successMessage)
 {
     QString error;
     if (!flags_.save(&error)) {
-        setStatus(QStringLiteral("Không lưu được flags: %1").arg(error), false);
+        setStatus(QStringLiteral("Could not save flags: %1").arg(error), false);
         return false;
     }
     setStatus(successMessage, true);
@@ -536,7 +537,7 @@ void MainWindow::saveSettings()
 {
     QString error;
     if (!writeJsonAtomically(paths_.settings, settings_, &error))
-        setStatus(QStringLiteral("Không lưu được cài đặt: %1").arg(error), false);
+        setStatus(QStringLiteral("Could not save settings: %1").arg(error), false);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

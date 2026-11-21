@@ -9,19 +9,19 @@
 namespace SimpleInjector {
 
 enum class ProcessState {
-    Unsupported,  ///< Không phải Windows.
-    NotRunning,   ///< Chưa thấy tiến trình.
-    AccessDenied, ///< Thấy tiến trình nhưng Windows từ chối mở (xem errorCode).
-    NoModuleBase, ///< Mở được nhưng không đọc được địa chỉ module chính.
-    Connected,    ///< Đã gắn, sẵn sàng đọc/ghi.
+    Unsupported,  ///< Not running on Windows.
+    NotRunning,   ///< The process was not found.
+    AccessDenied, ///< The process exists but Windows refused to open it (see errorCode).
+    NoModuleBase, ///< Opened, but the main module's base address could not be read.
+    Connected,    ///< Attached and ready for reads and writes.
 };
 
 struct ProcessStatus {
     ProcessState state = ProcessState::NotRunning;
     quint32 pid = 0;
     quintptr imageBase = 0;
-    quint32 errorCode = 0; ///< GetLastError() khi AccessDenied.
-    QString version;       ///< `version-<hex>` suy ra từ đường dẫn file chạy (có thể rỗng).
+    quint32 errorCode = 0; ///< GetLastError() when AccessDenied.
+    QString version;       ///< `version-<hex>` derived from the executable's path (may be empty).
 
     bool operator==(const ProcessStatus &other) const
     {
@@ -31,13 +31,13 @@ struct ProcessStatus {
     bool operator!=(const ProcessStatus &other) const { return !(*this == other); }
 };
 
-/// Nguồn thông tin về tiến trình Roblox. Bản thật dùng API Windows;
-/// bản giả trong test trả về chuỗi trạng thái được kịch bản hóa trước.
+/// Source of information about the Roblox process. The real implementation uses Windows APIs;
+/// tests use a fake that returns a scripted sequence of statuses.
 class IProcessProbe {
 public:
     virtual ~IProcessProbe() = default;
 
-    /// Kiểm tra lại và trả về trạng thái hiện tại (có thể gắn/tháo kết nối bên trong).
+    /// Re-checks and returns the current status (may attach or detach internally).
     virtual ProcessStatus refresh() = 0;
     virtual void detach() = 0;
 };

@@ -1,4 +1,4 @@
-#include "core/window_sizing.h"
+#include "ui/window_sizing.h"
 
 #include <QtTest>
 
@@ -15,7 +15,7 @@ private slots:
 
     void shrinksToFitSmallLaptopScreen()
     {
-        // 1366x768 trừ thanh tác vụ ~ 1366x728: 720 cao sẽ tràn, phải co lại còn 90%.
+        // 1366x768 minus the taskbar ~ 1366x728: a height of 720 would overflow, so shrink to 90%.
         const QSize fitted = fitToScreen({620, 720}, QRect(0, 0, 1366, 728));
         QCOMPARE(fitted, QSize(620, 655));
         QVERIFY(fitted.height() < 728);
@@ -39,7 +39,7 @@ private slots:
 
     void centersInsideAvailableAreaWithOffset()
     {
-        // Thanh tác vụ ở trên: vùng làm việc bắt đầu tại y = 40.
+        // Taskbar at the top: the available area starts at y = 40.
         const QRect available(0, 40, 1000, 700);
         const QRect centered = centeredIn({600, 500}, available);
         QCOMPARE(centered, QRect(200, 140, 600, 500));

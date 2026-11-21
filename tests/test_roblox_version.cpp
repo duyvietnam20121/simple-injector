@@ -1,4 +1,4 @@
-#include "core/roblox_version.h"
+#include "core/offsets/roblox_version.h"
 
 #include <QtTest>
 

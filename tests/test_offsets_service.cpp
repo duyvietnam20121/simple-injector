@@ -1,4 +1,4 @@
-#include "core/offsets_cache.h"
+#include "core/offsets/offsets_cache.h"
 #include "services/offsets_service.h"
 
 #include <QSignalSpy>
@@ -12,7 +12,7 @@ using Outcome = OffsetsService::Outcome;
 
 namespace {
 
-/// Máy chủ HTTP tối giản chạy cục bộ, trả về một phản hồi cố định (hoặc im lặng).
+/// Minimal local HTTP server that returns one fixed response (or stays silent).
 class FakeHttpServer final : public QObject {
 public:
     FakeHttpServer()
@@ -23,7 +23,7 @@ public:
                 connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
                     socket->readAll();
                     if (silent)
-                        return; // giả lập máy chủ treo
+                        return; // simulates a hung server
                     socket->write(response);
                     socket->disconnectFromHost();
                 });
@@ -88,13 +88,13 @@ private slots:
         QCOMPARE(finished.at(0).at(0).value<Outcome>(), Outcome::Updated);
         QVERIFY(!service.isRefreshing());
         QCOMPARE(service.offsets().value(QStringLiteral("Alpha")), quintptr(0x10));
-        QCOMPARE(service.offsets().value(QStringLiteral("Beta")), quintptr(0x20)); // đã bỏ tiền tố
+        QCOMPARE(service.offsets().value(QStringLiteral("Beta")), quintptr(0x20)); // prefix removed
         QCOMPARE(service.version(), QStringLiteral("version-aaaabbbbccccdddd"));
         QCOMPARE(service.source(), OffsetsService::Source::Network);
         QVERIFY(service.loadedAt().isValid());
         QVERIFY(service.lastError().isEmpty());
 
-        // Cache trên đĩa khớp, kèm phiên bản; một service mới khôi phục được.
+        // The cache on disk matches and carries the version; a new service restores it.
         OffsetsService restored(server.url(), cache);
         restored.loadCache();
         QCOMPARE(restored.offsets(), service.offsets());
@@ -128,7 +128,7 @@ private slots:
         service.refresh();
         QVERIFY(finished.wait(5000));
 
-        QCOMPARE(service.source(), OffsetsService::Source::Cache); // vẫn là dữ liệu cache cũ
+        QCOMPARE(service.source(), OffsetsService::Source::Cache); // still the old cached data
         QVERIFY(!service.lastError().isEmpty());
     }
 
@@ -233,7 +233,7 @@ private slots:
         QTemporaryDir dir;
         QUrl url;
         {
-            FakeHttpServer server; // lấy một cổng rồi đóng lại để chắc chắn không ai lắng nghe
+            FakeHttpServer server; // grab a port and close it again so that nobody is listening
             QVERIFY(server.start());
             url = server.url();
         }
@@ -258,7 +258,7 @@ private slots:
         service.refresh();
         service.refresh();
         QVERIFY(finished.wait(5000));
-        QTest::qWait(200); // đảm bảo không có phản hồi thứ hai muộn
+        QTest::qWait(200); // make sure no late second response arrives
 
         QCOMPARE(finished.count(), 1);
         QCOMPARE(server.requests, 1);
@@ -280,7 +280,7 @@ private slots:
 
         service.stopAutoRefresh();
         QVERIFY(!service.isAutoRefreshing());
-        QTest::qWait(150); // chờ yêu cầu đang bay (nếu có) kết thúc
+        QTest::qWait(150); // let a request that is in flight (if any) finish
         const int settled = finished.count();
         QTest::qWait(250);
         QCOMPARE(finished.count(), settled);
