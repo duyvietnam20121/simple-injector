@@ -68,7 +68,7 @@ jobs:
           Copy-Item "build/Release/SimpleInjector.exe" "package/SimpleInjector.exe"
           windeployqt --release --no-translations --no-compiler-runtime --dir package "package/SimpleInjector.exe"
 
-      # upload-artifact tự nén thư mục, không cần Compress-Archive (tránh zip lồng zip).
+      # upload-artifact compresses the folder itself; no Compress-Archive needed (avoids a zip inside a zip).
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
